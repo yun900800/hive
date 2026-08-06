@@ -1,0 +1,818 @@
+/**
+ * 蜂巢共享办公空间 - DDD 上下文映射示例
+ * 
+ * 展示 6 个限界上下文的协作关系：
+ * - Membership (会员)
+ * - Booking (预订) 
+ * - Access (门禁)
+ * - Billing (计费)
+ * - Facility (设施)
+ * - Notification (通知)
+ */
+
+ContextMap HiveCoworkingMap {
+	type = SYSTEM_LANDSCAPE
+	state = TO_BE
+
+	contains MembershipContext
+	contains BookingContext
+	contains AccessContext
+	contains BillingContext
+	contains FacilityContext
+	contains NotificationContext
+
+	/* 预订完成后，发消息通知 */
+	BookingContext [OHS, PL] -> NotificationContext
+
+	/* 预订完成后，生成通行授权 */
+	BookingContext [OHS, PL] -> AccessContext {
+		exposedAggregates BookingPass
+	}
+
+	/* 预订使用后，通知计费 */
+	BookingContext [OHS, PL] -> BillingContext {
+		exposedAggregates UsageRecord
+	}
+
+	/* 会员中心告诉预订系统"这个人是谁" */
+	MembershipContext [OHS, PL] -> BookingContext {
+		exposedAggregates MemberIdentity
+	}
+
+	/* 会员变更套餐 → 调整账单 */
+	MembershipContext [OHS, PL] -> BillingContext
+
+	/* 设施状态影响哪些资源可预订 */
+	FacilityContext <- [ACL] BookingContext
+
+	/* 门禁验证会员通行权限 */
+	AccessContext -> [ACL] MembershipContext
+
+	/* 计费和会员共享"信用额度"（共享内核，小范围） */
+	MembershipContext [SK] BillingContext
+
+	/* 闸机设备状态变化通知门禁系统 */
+	FacilityContext [OHS, PL] -> AccessContext {
+		exposedAggregates GateStatus
+	}
+
+	/* 灵活区域状态变化通知预订系统（如区域维护中则暂停入场） */
+	FacilityContext [OHS, PL] -> BookingContext {
+		exposedAggregates FlexZoneStatus
+	}
+}
+
+/**
+ * ============================================
+ * 限界上下文定义
+ * ============================================
+ */
+
+BoundedContext MembershipContext implements MembershipDomain {
+	type = CORE_DOMAIN
+	domainVisionStatement = "管理会员注册、套餐、身份和积分等级"
+	implementationTechnology = "Spring Boot"
+
+	/**
+	 * 聚合：会员基本信息
+	 * 记录会员的身份档案、等级和信用积分，是整个系统的用户基石
+	 */
+	Aggregate Member {
+		/** 会员账号 - 聚合根，每个注册用户对应一条 */
+		Entity Member {
+			aggregateRoot
+
+			- MemberId memberId     /* 会员唯一标识 */
+			String name             /* 会员姓名 */
+			String phone            /* 手机号（可用于扫码开门） */
+			- Email email           /* 邮箱地址，用于接收账单和通知 */
+			MemberTier tier         /* 会员等级，影响折扣和权益 */
+			int creditScore         /* 信用积分，违约/NoShow会扣分 */
+		}
+
+		/** 邮箱地址 - 值对象，封装格式校验逻辑 */
+		ValueObject Email {
+			String address
+		}
+
+		/** 会员等级枚举：从低到高，等级越高折扣越多、权益越多 */
+		enum MemberTier {
+			BASIC,    /* 普通会员 - 默认等级 */
+			SILVER,   /* 银卡会员 - 累计消费满1000元 */
+			GOLD,     /* 金卡会员 - 累计消费满5000元 */
+			PLATINUM  /* 铂金会员 - 累计消费满20000元或企业会员 */
+		}
+
+		/** 会员ID - 值对象，使用UUID确保全局唯一 */
+		ValueObject MemberId {
+			UUID id
+		}
+
+		/** 领域事件：会员等级提升，触发Billing重新计算折扣 */
+		DomainEvent MemberUpgraded {
+			MemberId memberId
+			MemberTier newTier
+		}
+	}
+
+	/**
+	 * 聚合：订阅套餐
+	 * 会员购买的当前套餐（灵活工位/固定工位/独立办公室/虚拟会员）
+	 */
+	Aggregate SubscriptionPlan {
+		/** 订阅记录 - 聚合根，一个会员同时只能有一个生效套餐 */
+		Entity Subscription {
+			aggregateRoot
+
+			- SubscriptionId id     /* 订阅唯一标识 */
+			- MemberId memberId     /* 所属会员 */
+			PlanType planType       /* 套餐类型：决定了可用的空间类型 */
+			Money monthlyFee        /* 月费金额 */
+			LocalDate startDate     /* 套餐生效日期 */
+			LocalDate endDate       /* 套餐到期日期 */
+			SubscriptionStatus status /* 订阅状态 */
+		}
+
+		/**
+		 * 套餐类型枚举
+		 * FLEX_DESK 自由座 → 不固定工位，随机坐
+		 * FIXED_DESK 固定座 → 专属工位（如B-12），别人不能占
+		 * PRIVATE_OFFICE 独立办公室 → 带门的封闭空间
+		 * VIRTUAL 虚拟会员 → 只挂地址，没有实体工位
+		 */
+		enum PlanType {
+			FLEX_DESK, FIXED_DESK, PRIVATE_OFFICE, VIRTUAL
+		}
+
+		/** 订阅状态枚举 */
+		enum SubscriptionStatus {
+			ACTIVE,    /* 生效中 - 正常使用 */
+			CANCELLED, /* 已取消 - 会员手动取消 */
+			EXPIRED,   /* 已过期 - 到期未续费 */
+			SUSPENDED  /* 已暂停 - 欠费或违规冻结 */
+		}
+
+		/** 金额 - 值对象，避免浮点数精度问题 */
+		ValueObject Money {
+			BigDecimal amount    /* 金额数值 */
+			String currency      /* 币种，如CNY/USD */
+		}
+	}
+
+	// ===== 领域服务：会员身份验证与查询 =====
+	Service MembershipService {
+		@MemberVerified verifyIdentity(@VerifyIdentityCommand cmd);
+		MemberTier getMemberTier(@MemberId memberId);
+		PlanType getCurrentPlan(@MemberId memberId);
+	}
+
+	// ===== 应用服务：会员与套餐管理 =====
+	Service MembershipApplicationService {
+		@MemberRegistered registerMember(@RegisterMemberCommand cmd);
+		@SubscriptionChanged subscribePlan(@SubscribePlanCommand cmd);
+		@SubscriptionCancelled cancelSubscription(@MemberId memberId);
+	}
+}
+
+BoundedContext BookingContext implements SpaceReservationDomain {
+	type = CORE_DOMAIN
+	domainVisionStatement = "管理工位和会议室的预订、锁定、释放和计时"
+	implementationTechnology = "Spring Boot"
+
+	/**
+	 * 聚合：工位预订
+	 * 会员预订某个具体工位（如B-12）的整个生命周期
+	 */
+	Aggregate DeskBooking {
+		/** 预订单 - 聚合根，代表一次工位预订的核心记录 */
+		Entity Booking {
+			aggregateRoot
+
+			- BookingId bookingId        /* 预订单号 */
+			- MemberId memberId          /* 预订人（引用Membership） */
+			- DeskId deskId              /* 预订的工位（引用Facility） */
+			- TimeSlot timeSlot          /* 预订时段：比如9:00-18:00 */
+			BookingStatus status         /* 当前状态 */
+			- UsageRecord usageRecord    /* 使用记录，用于计费 */
+		}
+
+		/** 时间段 - 值对象，封装起止时间及重叠判断逻辑 */
+		ValueObject TimeSlot {
+			LocalDateTime startTime
+			LocalDateTime endTime
+		}
+
+		/** 工位预订状态枚举 */
+		enum BookingStatus {
+			PENDING,     /* 待确认 - 刚提交，等待系统确认 */
+			CONFIRMED,   /* 已确认 - 锁定了工位，等待签到 */
+			CHECKED_IN,  /* 已签到 - 人到场扫码了 */
+			CHECKED_OUT, /* 已签退 - 离开工位 */
+			CANCELLED,   /* 已取消 - 30分钟前可免费取消 */
+			NO_SHOW      /* 未到场 - 超时未签到自动释放 */
+		}
+
+		/** 预订ID - 值对象，UUID格式 */
+		ValueObject BookingId {
+			UUID id
+		}
+
+		/** 领域事件：预订已确认 → 触发创建GatePass和通知 */
+		DomainEvent BookingConfirmed {
+			BookingId bookingId
+			MemberId memberId
+			TimeSlot timeSlot
+		}
+
+		/** 领域事件：已签到 → 触发Billing开始计费 */
+		DomainEvent BookingCheckedIn {
+			BookingId bookingId
+			LocalDateTime checkInTime
+		}
+
+		/** 领域事件：已签退 → 触发Billing结算 */
+		DomainEvent BookingCheckedOut {
+			BookingId bookingId
+			LocalDateTime checkOutTime
+			Duration actualDuration
+		}
+	}
+
+	/**
+	 * 聚合：会议室预订
+	 * 会议室的使用与工位不同，按次使用、按小时计费、有超时策略
+	 */
+	Aggregate MeetingRoomBooking {
+		/** 会议室预订单 - 聚合根 */
+		Entity RoomBooking {
+			aggregateRoot
+
+			- RoomBookingId roomBookingId  /* 预订单号 */
+			- MemberId bookerId            /* 预订人 */
+			- RoomId roomId                /* 会议室（引用Facility） */
+			- TimeSlot timeSlot            /* 预订时段 */
+			int expectedAttendees          /* 预计参会人数 */
+			RoomBookingStatus status       /* 当前状态 */
+		}
+
+		/** 会议室预订状态枚举 */
+		enum RoomBookingStatus {
+			PENDING,      /* 待确认 */
+			CONFIRMED,    /* 已确认，到时间可开始使用 */
+			IN_PROGRESS,  /* 使用中 - 已经开始计时 */
+			COMPLETED,    /* 已完成 - 释放会议室 */
+			CANCELLED     /* 已取消 */
+		}
+
+		/** 领域事件：会议室使用完成 → 通知Billing按实际时长计费 */
+		DomainEvent RoomBookingCompleted {
+			RoomBookingId roomBookingId
+			TimeSlot actualTimeSlot
+		}
+
+		/** 应用服务：对外暴露的预订业务接口 */
+		Service BookingApplicationService {
+			@BookingConfirmed createDeskBooking(@CreateDeskBookingCommand cmd);
+			@RoomBookingCompleted completeRoomBooking(@CompleteRoomBookingCommand cmd);
+			@BookingCheckedIn checkIn(@CheckInCommand cmd);
+			@BookingCheckedOut checkOut(@CheckOutCommand cmd);
+		}
+	}
+
+	/**
+	 * 聚合：灵活区使用会话
+	 * FLEX_DESK 会员专用，不绑定具体工位
+	 * 流程：入场扫码 → 在场计时 → 离场结算
+	 */
+	Aggregate FlexSession {
+		/** 灵活区会话 - 聚合根，一次到访从入场到离场的完整记录 */
+		Entity FlexSession {
+			aggregateRoot
+
+			- FlexSessionId sessionId        /* 会话ID */
+			- MemberId memberId              /* 会员 */
+			- ZoneId flexZoneId              /* 所在的灵活区域（如A区灵活区） */
+			- DeskId assignedDeskId?         /* 可选：如果选了具体工位就记录 */
+			LocalDateTime checkInTime        /* 入场签到时间 */
+			LocalDateTime checkOutTime       /* 离场签退时间 */
+			FlexSessionStatus status         /* 当前状态 */
+		}
+
+		/** 会话ID - 值对象 */
+		ValueObject FlexSessionId {
+			UUID id
+		}
+
+		/** 区域ID - 值对象，同FacilityContext的ZoneId结构一致（跨上下文引用） */
+		ValueObject ZoneId {
+			String floorCode   /* 楼层编码 */
+			String zoneCode    /* 区域编码 */
+		}
+
+		/** 灵活区会话状态枚举 */
+		enum FlexSessionStatus {
+			ACTIVE,      /* 在场中 - 已签到，正在使用灵活区 */
+			COMPLETED,   /* 已离场 - 签退完成 */
+			NO_SHOW      /* 未到 - 预约了但没来（如果有预约入场时段） */
+		}
+
+		/** 领域事件：灵活区入场 → 通知Access创建GatePass，通知Billing开始计时 */
+		DomainEvent FlexSessionStarted {
+			FlexSessionId sessionId
+			MemberId memberId
+			ZoneId flexZoneId
+			LocalDateTime checkInTime
+		}
+
+		/** 领域事件：灵活区离场 → 通知Billing结算费用 */
+		DomainEvent FlexSessionEnded {
+			FlexSessionId sessionId
+			MemberId memberId
+			LocalDateTime checkOutTime
+			Duration actualDuration
+		}
+
+		/** 灵活区服务：管理入场/离场和查询可用工位 */
+		Service FlexSeatingService {
+			@FlexSessionStarted checkIn(@FlexCheckInCommand cmd);
+			@FlexSessionEnded checkOut(@FlexCheckOutCommand cmd);
+			List<@DeskId> findAvailableDesks(@ZoneId zoneId);
+		}
+	}
+
+	// ===== 领域服务：预订策略规则 =====
+	Service BookingPolicies {
+		boolean canCancel(@Booking booking, @LocalDateTime cancelTime);
+		boolean isNoShow(@Booking booking);
+	}
+}
+
+BoundedContext AccessContext implements PhysicalAccessDomain {
+	type = SUPPORTING_DOMAIN
+	domainVisionStatement = "管理门禁闸机通行、时段授权和出入记录"
+
+	/**
+	 * 聚合：门禁通行证
+	 * Booking确认后自动生成，授权会员在指定时段通过指定闸机
+	 */
+	Aggregate GatePass {
+		/** 通行证 - 聚合根，一次通行授权记录 */
+		Entity GatePass {
+			aggregateRoot
+
+			- GatePassId gatePassId            /* 通行证唯一编码（扫码时用的就是这个编码） */
+			- MemberId memberId                /* 持有会员 */
+			- TimeSlot authorizedTimeSlot      /* 授权通行的有效时段 */
+			- List<GateId> authorizedGates     /* 允许通行的闸机列表（如工位区闸机+会议室闸机） */
+			GatePassStatus status              /* 通行证状态 */
+		}
+
+		/** 闸机ID - 值对象，同FacilityContext的GateId结构一致（跨上下文引用） */
+		ValueObject GateId {
+			String floorCode   /* 楼层编码 */
+			String zoneCode    /* 区域编码 */
+			int number         /* 编号 */
+		}
+
+		/** 通行证状态枚举 */
+		enum GatePassStatus {
+			ACTIVE,   /* 有效 - 可在授权时段内通行 */
+			USED,     /* 已使用 - 已通行过 */
+			EXPIRED,  /* 已过期 - 授权时段已过但未使用 */
+			REVOKED   /* 已撤销 - 预订取消导致通行证作废 */
+		}
+
+		/** 领域事件：闸机通行成功，同步记录通行日志 */
+		DomainEvent GateAccessGranted {
+			GatePassId gatePassId
+			MemberId memberId
+			LocalDateTime accessTime
+		}
+	}
+
+	/**
+	 * 聚合：通行记录
+	 * 每次扫码过闸机的日志，用于安全审计、流量分析、异常检测
+	 */
+	Aggregate AccessLog {
+		/** 通行记录条目 - 聚合根，一次闸机通行事件 */
+		Entity AccessLogEntry {
+			aggregateRoot
+
+			- AccessLogId logId              /* 记录ID */
+			- GatePassId gatePassId          /* 使用的通行证 */
+			- MemberId memberId              /* 通行会员 */
+			- GateId gateId                  /* 从哪个闸机通行 */
+			LocalDateTime accessTime         /* 通行时间 */
+			AccessDirection direction        /* 进/出 */
+			AccessResult result              /* 通行结果 */
+		}
+
+		/** 通行记录ID */
+		ValueObject AccessLogId {
+			UUID id
+		}
+
+		/** 通行方向枚举：用于区分"进入"和"离开" */
+		enum AccessDirection {
+			ENTRY,  /* 进入 - 进入办公区 */
+			EXIT    /* 离开 - 离开办公区 */
+		}
+
+		/**
+		 * 通行结果枚举
+		 * GRANTED → 正常通行
+		 * DENIED_* → 各种被拒原因，用于安全告警
+		 */
+		enum AccessResult {
+			GRANTED,             /* 通行允许 - 正常开门 */
+			DENIED_EXPIRED,      /* 拒绝 - 通行证已过期 */
+			DENIED_NO_BOOKING,   /* 拒绝 - 当天该闸机无有效预订 */
+			DENIED_REVOKED       /* 拒绝 - 通行证已被撤销 */
+		}
+
+		/** 领域事件：入场记录已生成 */
+		DomainEvent EntryRecorded {
+			AccessLogId logId
+			MemberId memberId
+			GateId gateId
+			LocalDateTime accessTime
+		}
+
+		/** 领域事件：离场记录已生成 */
+		DomainEvent ExitRecorded {
+			AccessLogId logId
+			MemberId memberId
+			LocalDateTime accessTime
+		}
+	}
+
+	// ===== 领域服务：闸机通行控制 =====
+	Service GateAccessService {
+		@GateAccessGranted scanToEnter(@ScanCodeCommand cmd);
+		@ExitRecorded scanToExit(@ScanCodeCommand cmd);
+	}
+
+	// ===== 应用服务：通行证与日志管理 =====
+	Service AccessApplicationService {
+		@GatePassCreated createGatePass(@CreateGatePassCommand cmd);
+		@GatePassRevoked revokeGatePass(@GatePassId gatePassId);
+		List<@AccessLogEntry> queryAccessLogs(@MemberId memberId, @LocalDate dateRange);
+	}
+}
+
+BoundedContext BillingContext implements BillingDomain {
+	type = CORE_DOMAIN
+	domainVisionStatement = "计费、发票、支付和信用额度管理"
+	implementationTechnology = "Spring Boot"
+
+	/**
+	 * 聚合：账单
+	 * 每月给会员生成一张账单，包含会员费+工位费+会议室费+超时费等明细
+	 */
+	Aggregate Invoice {
+		/** 账单 - 聚合根，按月出账，一个会员每月一张 */
+		Entity Invoice {
+			aggregateRoot
+
+			- InvoiceId invoiceId          /* 账单号 */
+			- MemberId memberId            /* 所属会员 */
+			Money totalAmount              /* 账单总金额 */
+			Money paidAmount               /* 已支付金额 */
+			List<InvoiceLineItem> lineItems /* 账单明细行 */
+			InvoiceStatus status           /* 账单状态 */
+			LocalDate dueDate              /* 付款截止日 */
+		}
+
+		/** 账单明细行 - 值对象，一条费用项 */
+		ValueObject InvoiceLineItem {
+			String description   /* 费用说明，如"会议室超时费" */
+			Money amount         /* 金额 */
+			ChargeType type      /* 费用类型 */
+		}
+
+		/** 费用类型枚举：会员费/工位使用/灵活区使用/会议室使用/超时罚款 */
+		enum ChargeType {
+			MEMBERSHIP_FEE,   /* 会员月费 - 固定套餐费用 */
+			DESK_USAGE,       /* 固定工位使用费 - FIXED_DESK按天计费 */
+			FLEX_USAGE,       /* 灵活区使用费 - FLEX_DESK按实际时长计费 */
+			ROOM_USAGE,       /* 会议室使用费 - 按小时计费 */
+			OVER_TIME_PENALTY /* 超时罚金 - 会议室超时额外收费 */
+		}
+
+		/** 账单状态枚举 */
+		enum InvoiceStatus {
+			PENDING,   /* 待支付 - 账单已出，未付款 */
+			PAID,      /* 已支付 */
+			OVERDUE,   /* 已逾期 - 超过dueDate未付 */
+			CANCELLED  /* 已取消 - 账单作废 */
+		}
+	}
+
+	/** 计费策略服务：根据不同费率和用量计算费用 */
+	Service BillingService {
+		@Invoice generateMonthlyInvoice(@MemberId memberId, @LocalDate billingMonth);
+		Money calculateUsageFee(@UsageRecord usage, @RatePolicy ratePolicy);
+	}
+	
+	/** 免罚期策略：会议室超时15分钟内不额外收费 */
+	ValueObject GracePeriod {
+		Duration duration = 15 minutes
+	}
+
+	// ===== 领域服务：超时计费策略 =====
+	Service OvertimePolicy {
+		Money calculateRoomOvertime(@TimeSlot bookedSlot, @TimeSlot actualSlot, @RoomRate rate);
+	}
+
+	// ===== 应用服务：计费处理 =====
+	Service BillingApplicationService {
+		@UsageCharged recordDeskUsage(@UsageRecord usage);
+		@UsageCharged recordRoomUsage(@RoomBookingCompleted event);
+		@UsageCharged recordFlexUsage(@FlexSessionEnded event);
+		@PaymentProcessed processPayment(@PaymentCommand cmd);
+	}
+}
+
+BoundedContext FacilityContext implements SpaceManagementDomain {
+	type = GENERIC_SUBDOMAIN
+	domainVisionStatement = "管理空间、工位、会议室、灵活区域和设备维护"
+
+	/**
+	 * 聚合：工位
+	 * 一个工位对应一张桌子/一个座位，是空间中最小的可预订单元
+	 */
+	Aggregate Desk {
+		/** 工位 - 聚合根，物理空间中的一个座位 */
+		Entity Desk {
+			aggregateRoot
+
+			- DeskId deskId           /* 工位编码，如 "B-12" */
+			String floor              /* 所在楼层 */
+			String zone               /* 所属区域/分区 */
+			String deskNumber         /* 工位编号 */
+			DeskType type             /* 工位类型 */
+			DeskStatus status         /* 当前状态 */
+		}
+
+		/** 工位类型枚举 */
+		enum DeskType {
+			STANDARD,      /* 标准工位 - 普通桌椅 */
+			WINDOW_SIDE,   /* 靠窗工位 - 采光好，最受欢迎 */
+			QUIET_ZONE,    /* 静区工位 - 禁止交谈，适合深度办公 */
+			STANDING       /* 站立工位 - 可升降桌面 */
+		}
+
+		/** 工位状态枚举 */
+		enum DeskStatus {
+			AVAILABLE,          /* 可预订 - 空闲 */
+			OCCUPIED,           /* 已占用 - 有人在使用 */
+			RESERVED,           /* 已预约 - 已被预订但还没人签到 */
+			UNDER_MAINTENANCE   /* 维护中 - 报修，暂时不可用 */
+		}
+
+		/** 工位编码 - 值对象，如 "B-12" = 楼层B + 区域1 + 编号2 */
+		ValueObject DeskId {
+			String floorCode   /* 楼层编码，如 A/B/C */
+			String zoneCode    /* 区域编码，如 1/2/3 */
+			int number         /* 工位序号 */
+		}
+	}
+
+	/**
+	 * 聚合：会议室
+	 * 配备投影/白板等设备的独立房间，按小时预订
+	 */
+	Aggregate MeetingRoom {
+		/** 会议室 - 聚合根 */
+		Entity MeetingRoom {
+			aggregateRoot
+
+			- RoomId roomId            /* 会议室ID */
+			String name                /* 会议室名称，如"华山厅" */
+			int capacity               /* 容纳人数 */
+			List<String> equipments    /* 设备清单，如投影仪、白板、电视 */
+			RoomStatus status          /* 当前状态 */
+		}
+
+		/** 会议室状态枚举 */
+		enum RoomStatus {
+			AVAILABLE,          /* 可预订 */
+			IN_USE,             /* 使用中 */
+			UNDER_MAINTENANCE   /* 维护中 */
+		}
+	}
+
+	/**
+	 * 聚合：闸机设备（物理资产）
+	 * 归属于这里而不是AccessContext，因为闸机是物理设备，和工位、会议室一样需要资产管理
+	 * AccessContext通过GateId引用，并监听GateStatusChanged事件
+	 */
+	Aggregate Gate {
+		/** 闸机 - 聚合根，物理出入口设备 */
+		Entity Gate {
+			aggregateRoot
+
+			- GateId gateId                /* 闸机编码 */
+			String name                    /* 闸机名称，如"东区入口1号闸机" */
+			String floor                   /* 所在楼层 */
+			String zone                    /* 所属区域 */
+			GateType type                  /* 闸机类型 */
+			GateStatus status              /* 运行状态 */
+			- LocalDateTime lastMaintenanceAt /* 最近一次维护时间 */
+		}
+
+		/** 闸机编码 - 值对象 */
+		ValueObject GateId {
+			String floorCode   /* 楼层编码 */
+			String zoneCode    /* 区域编码 */
+			int number         /* 闸机编号 */
+		}
+
+		/** 闸机类型枚举 */
+		enum GateType {
+			ENTRY_TURNSTILE,   /* 入口闸机 - 单向进入 */
+			EXIT_TURNSTILE,    /* 出口闸机 - 单向离开 */
+			EMERGENCY_EXIT,    /* 应急出口 - 消防通道，非常用 */
+			ELEVATOR_CONTROL   /* 电梯梯控 - 控制电梯楼层权限 */
+		}
+
+		/** 闸机运行状态枚举 */
+		enum GateStatus {
+			OPERATIONAL,         /* 运行正常 - 可通行 */
+			UNDER_MAINTENANCE,   /* 维护中 - 暂停使用 */
+			OFFLINE,             /* 离线 - 网络中断 */
+			OUT_OF_SERVICE       /* 已停用 - 报废拆除 */
+		}
+
+		/** 领域事件：闸机状态变化 → 通知AccessContext更新通行策略 */
+		DomainEvent GateStatusChanged {
+			GateId gateId
+			GateStatus newStatus
+			LocalDateTime changedAt
+		}
+
+		/** 领域事件：闸机需要维护 → 触发工单系统 */
+		DomainEvent GateMaintenanceRequired {
+			GateId gateId
+			String issue              /* 故障描述 */
+			LocalDateTime reportedAt  /* 上报时间 */
+		}
+	}
+
+	/**
+	 * 聚合：灵活区域
+	 * 专为 FLEX_DESK 会员使用的开放式区域，如"A区灵活办公区"
+	 * 与 Gate 同理——区域是物理空间资源，归属 FacilityContext 统一管理
+	 * BookingContext 通过 ZoneId 引用，并监听 FlexZoneStatusChanged 事件
+	 */
+	Aggregate FlexZone {
+		/** 灵活区域 - 聚合根，一个开放式的灵活办公区域 */
+		Entity FlexZone {
+			aggregateRoot
+
+			- ZoneId zoneId                /* 区域编码 */
+			String name                    /* 区域名称，如"A区灵活办公区" */
+			String floor                   /* 所在楼层 */
+			int capacity                   /* 最大容纳人数 */
+			LocalTime openingTime          /* 营业开始时间，如 08:00 */
+			LocalTime closingTime          /* 营业结束时间，如 22:00 */
+			FlexZoneStatus status          /* 当前状态 */
+		}
+
+		/** 区域编码 - 值对象 */
+		ValueObject ZoneId {
+			String floorCode   /* 楼层编码 */
+			String zoneCode    /* 区域编码 */
+		}
+
+		/** 灵活区域状态枚举 */
+		enum FlexZoneStatus {
+			OPEN,               /* 营业中 - 会员可进入 */
+			CLOSED,             /* 已关闭 - 非营业时间 */
+			UNDER_MAINTENANCE   /* 维护中 - 装修/清洁，暂停使用 */
+		}
+
+		/** 领域事件：区域状态变化 → 通知Booking调整入场策略 */
+		DomainEvent FlexZoneStatusChanged {
+			ZoneId zoneId
+			FlexZoneStatus newStatus
+			LocalDateTime changedAt
+		}
+	}
+
+	// ===== 领域服务：资源可用性查询 =====
+	Service ResourceAvailabilityService {
+		boolean isDeskAvailable(@DeskId deskId, @TimeSlot timeSlot);
+		List<@Desk> findAvailableDesks(@String floor, @DeskType type, @TimeSlot timeSlot);
+		boolean isRoomAvailable(@RoomId roomId, @TimeSlot timeSlot);
+	}
+
+	// ===== 应用服务：设施资产管理 =====
+	Service FacilityManagementService {
+		@DeskStatusChanged addDesk(@AddDeskCommand cmd);
+		@DeskStatusChanged updateDeskStatus(@DeskId deskId, @DeskStatus status);
+		@RoomStatusChanged updateRoomStatus(@RoomId roomId, @RoomStatus status);
+		@GateStatusChanged updateGateStatus(@GateId gateId, @GateStatus status);
+		@FlexZoneStatusChanged updateFlexZoneStatus(@ZoneId zoneId, @FlexZoneStatus status);
+	}
+}
+
+BoundedContext NotificationContext implements NotificationDomain {
+	type = SUPPORTING_DOMAIN
+	domainVisionStatement = "消息推送、通知模板和送达管理"
+
+	/**
+	 * 聚合：通知
+	 * 预订确认、签到提醒、账单通知等所有发往会员的消息
+	 */
+	Aggregate Notification {
+		/** 通知消息 - 聚合根，一条待发送或已发送的消息 */
+		Entity Notification {
+			aggregateRoot
+
+			- NotificationId notificationId  /* 通知ID */
+			- MemberId recipientId           /* 接收会员 */
+			String title                     /* 通知标题，如"预订成功" */
+			String content                   /* 通知内容 */
+			NotificationChannel channel      /* 发送渠道 */
+			NotificationStatus deliveryStatus /* 送达状态 */
+			LocalDateTime createdAt          /* 创建时间 */
+		}
+
+		/** 通知渠道枚举 */
+		enum NotificationChannel {
+			PUSH,   /* App推送 - 最常用，即时性最强 */
+			SMS,    /* 短信 - 重要通知备用渠道 */
+			EMAIL,  /* 邮件 - 账单明细等长内容 */
+			IN_APP  /* App内消息 - 打开App才看到 */
+		}
+
+		/** 送达状态枚举 */
+		enum NotificationStatus {
+			PENDING,   /* 待发送 - 刚创建，排队中 */
+			SENT,      /* 已发送 - 推送渠道已接收 */
+			DELIVERED, /* 已送达 - 设备已收到 */
+			READ,      /* 已读 - 用户已查看 */
+			FAILED     /* 发送失败 - 需要重试或换渠道 */
+		}
+	}
+
+	// ===== 领域服务：通知内容组装 =====
+	Service NotificationComposer {
+		Notification composeBookingConfirmation(@BookingInfo bookingInfo);
+		Notification composeInvoiceNotice(@InvoiceInfo invoiceInfo);
+	}
+
+	// ===== 应用服务：通知发送管理 =====
+	Service NotificationApplicationService {
+		@NotificationSent send(@SendNotificationCommand cmd);
+		void retryFailed(@NotificationId notificationId);
+		void markAsRead(@NotificationId notificationId);
+	}
+}
+
+/**
+ * 领域与子域定义
+ * 
+ * CORE_DOMAIN = 核心竞争力，内部开发，投入最多资源
+ * SUPPORTING_DOMAIN = 必要配套，内部开发但非核心
+ * GENERIC_SUBDOMAIN = 通用能力，优先考虑采购现成方案
+ */
+Domain CoworkingDomain {
+	/** 会员子域（核心）：会员管理和订阅套餐，是商业模式的根基 */
+	Subdomain MembershipDomain {
+		type = CORE_DOMAIN
+		domainVisionStatement = "会员管理和订阅套餐，是商业模式的根基"
+	}
+
+	/** 空间预订子域（核心）：空间预订是核心业务能力 */
+	Subdomain SpaceReservationDomain {
+		type = CORE_DOMAIN
+		domainVisionStatement = "空间预订是核心业务能力"
+	}
+
+	/** 计费子域（核心）：计费直接影响收入和利润 */
+	Subdomain BillingDomain {
+		type = CORE_DOMAIN
+		domainVisionStatement = "计费直接影响收入和利润"
+	}
+
+	/** 门禁子域（支撑）：门禁是物理空间的必要配套 */
+	Subdomain PhysicalAccessDomain {
+		type = SUPPORTING_DOMAIN
+		domainVisionStatement = "门禁是物理空间的必要配套"
+	}
+
+	/** 空间管理子域（通用）：设施管理相对通用，可使用成熟方案 */
+	Subdomain SpaceManagementDomain {
+		type = GENERIC_SUBDOMAIN
+		domainVisionStatement = "设施管理相对通用，可使用成熟方案"
+	}
+
+	/** 通知子域（支撑）：通知可集成第三方推送服务 */
+	Subdomain NotificationDomain {
+		type = SUPPORTING_DOMAIN
+		domainVisionStatement = "通知可集成第三方推送服务"
+	}
+}
