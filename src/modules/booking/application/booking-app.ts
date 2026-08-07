@@ -183,11 +183,25 @@ export async function checkInDeskBooking(
   if (!result.ok) throw new Error(result.error);
   const next = result.value;
 
-  await db
-    .update(deskBookings)
-    .set({ status: next.status, checkedInAt: next.checkedInAt, updatedAt: next.updatedAt })
-    .where(eq(deskBookings.id, bookingId))
-    .run();
+  const event = createEvent({
+    eventType: "booking.booking-checked-in",
+    aggregateId: next.id,
+    aggregateType: "DeskBooking",
+    payload: {
+      bookingId: next.id,
+      memberId: next.memberId,
+      checkInTime: (next.checkedInAt ?? new Date()).toISOString(),
+    },
+  });
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(deskBookings)
+      .set({ status: next.status, checkedInAt: next.checkedInAt, updatedAt: next.updatedAt })
+      .where(eq(deskBookings.id, bookingId))
+      .run();
+    await appendOutboxEvents(tx, [event]);
+  });
   return next;
 }
 

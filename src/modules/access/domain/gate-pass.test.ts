@@ -59,6 +59,16 @@ describe("canGrantAccess", () => {
     const r = canGrantAccess(pass, new Date(2026, 7, 20, 8, 0));
     expect(r.result).toBe("DENIED_EXPIRED");
   });
+
+  it("边界时刻：正好 validFrom（9:00）可通行", () => {
+    const r = canGrantAccess(pass, new Date(2026, 7, 20, 9, 0));
+    expect(r.result).toBe("GRANTED");
+  });
+
+  it("边界时刻：正好 validTo（18:00）可通行", () => {
+    const r = canGrantAccess(pass, new Date(2026, 7, 20, 18, 0));
+    expect(r.result).toBe("GRANTED");
+  });
 });
 
 describe("markPassUsed / revokePass / isExpired", () => {

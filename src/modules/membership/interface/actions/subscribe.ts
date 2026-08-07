@@ -11,6 +11,7 @@ import {
 import { dispatchOutboxEvents } from "@/shared/outbox";
 // 注册事件订阅者（Billing 记录会员费 / Notification / Access）
 import "@/modules/billing/application/bootstrap";
+import "@/modules/access/application/bootstrap";
 import "@/modules/notification/application/bootstrap";
 
 export type SubscribeState = {

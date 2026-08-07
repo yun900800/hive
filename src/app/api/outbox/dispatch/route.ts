@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { dispatchOutboxEvents } from "@/shared/outbox";
 import "@/modules/billing/application/bootstrap";
+import "@/modules/access/application/bootstrap";
 import "@/modules/notification/application/bootstrap";
 
 /**

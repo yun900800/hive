@@ -31,4 +31,26 @@ describe("membership subscription", () => {
     const month = new Date(2026, 7, 1);
     expect(prorateMonthlyFee(89900, startDate, month)).toBe(89900);
   });
+
+  it("跨年折算：12 月开通按当月剩余天数", () => {
+    // 12 月 31 天；12/20 开通剩余 12 天
+    const startDate = new Date(2026, 11, 20);
+    const month = new Date(2026, 11, 1);
+    const prorated = prorateMonthlyFee(89900, startDate, month);
+    expect(prorated).toBe(Math.round((89900 * 12) / 31));
+  });
+
+  it("月末开通按 1 天折算", () => {
+    // 8 月 31 天；8/31 开通剩余 1 天
+    const startDate = new Date(2026, 7, 31);
+    const month = new Date(2026, 7, 1);
+    expect(prorateMonthlyFee(89900, startDate, month)).toBe(Math.round(89900 / 31));
+  });
+
+  it("次月开通（startDate > billingMonth）折算为 0", () => {
+    // 8 月出账，9 月才开通 → 当月无费用
+    const startDate = new Date(2026, 8, 1);
+    const month = new Date(2026, 7, 1);
+    expect(prorateMonthlyFee(89900, startDate, month)).toBe(0);
+  });
 });

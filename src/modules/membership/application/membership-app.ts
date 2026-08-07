@@ -198,11 +198,33 @@ export async function cancelSubscription(memberId: string): Promise<void> {
     .get();
   if (!activeSub) throw new Error("没有生效中的套餐");
 
-  await db
-    .update(subscriptions)
-    .set({ status: "CANCELLED", updatedAt: new Date() })
-    .where(eq(subscriptions.id, activeSub.id))
-    .run();
+  const event = createEvent({
+    eventType: "membership.subscription-cancelled",
+    aggregateId: activeSub.id,
+    aggregateType: "Subscription",
+    payload: {
+      memberId,
+      planType: activeSub.planType,
+      cancelledAt: new Date().toISOString(),
+    },
+  });
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(subscriptions)
+      .set({ status: "CANCELLED", updatedAt: new Date() })
+      .where(eq(subscriptions.id, activeSub.id))
+      .run();
+    await tx
+      .insert(outboxEvents)
+      .values({
+        aggregateId: event.aggregateId,
+        aggregateType: event.aggregateType,
+        eventType: event.eventType,
+        payload: JSON.stringify(event.payload),
+      })
+      .run();
+  });
 }
 
 /** 查询会员当前生效套餐 */

@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/auth-guards";
 import { processPayment, generateMonthlyInvoice } from "@/modules/billing/application/billing-app";
 import { dispatchOutboxEvents } from "@/shared/outbox";
 import "@/modules/billing/application/bootstrap";
+import "@/modules/access/application/bootstrap";
 import "@/modules/notification/application/bootstrap";
 
 export type ActionState = { error?: string; success?: string };

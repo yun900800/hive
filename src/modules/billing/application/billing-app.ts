@@ -304,6 +304,19 @@ export async function generateMonthlyInvoice(
     createdAt: now,
   });
 
+  // 发布 InvoiceIssued 事件（供 Notification 消费）—— 与账单写入同一事务，保证原子性
+  const event = createEvent({
+    eventType: "billing.invoice-issued",
+    aggregateId: invoice.id,
+    aggregateType: "Invoice",
+    payload: {
+      invoiceId: invoice.id,
+      memberId: invoice.memberId,
+      billingMonth: invoice.billingMonth,
+      totalCents: invoice.totalCents,
+    },
+  });
+
   await db.transaction(async (tx) => {
     await tx
       .insert(invoices)
@@ -331,21 +344,8 @@ export async function generateMonthlyInvoice(
         }))
       )
       .run();
+    await appendOutboxEvents(tx, [event]);
   });
-
-  // 发布 InvoiceIssued 事件（供 Notification 消费，Phase 4）
-  const event = createEvent({
-    eventType: "billing.invoice-issued",
-    aggregateId: invoice.id,
-    aggregateType: "Invoice",
-    payload: {
-      invoiceId: invoice.id,
-      memberId: invoice.memberId,
-      billingMonth: invoice.billingMonth,
-      totalCents: invoice.totalCents,
-    },
-  });
-  await appendOutboxEvents(db, [event]);
 
   return invoice;
 }

@@ -7,6 +7,7 @@ import * as booking from "@/modules/booking/application/booking-app";
 import { dispatchOutboxEvents } from "@/shared/outbox";
 // 注册事件订阅者（Access 发通行证 / Notification 发通知 / Billing 记账）
 import "@/modules/billing/application/bootstrap";
+import "@/modules/access/application/bootstrap";
 import "@/modules/notification/application/bootstrap";
 
 export type ActionState = { error?: string };
