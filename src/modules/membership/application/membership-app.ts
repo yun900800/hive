@@ -260,7 +260,7 @@ export async function changeSubscription(
       aggregateType: "Subscription",
       payload:
         changeType === "UPGRADE"
-          ? { memberId: input.memberId, planType: plan.planType, diffCents }
+          ? { memberId: input.memberId, planType: plan.planType, diffCents, subId: sub.id }
           : { memberId: input.memberId, planType: plan.planType, oldMonthlyFeeCents: activeSub.monthlyFeeCents },
     });
     await tx

@@ -49,7 +49,7 @@ export function registerBillingSubscribers(): void {
 
   // 升级 → 记录差价；降级/平级 → 当月已付不退，不产生费用（事件保留用于审计/未来通知）
   registerEventHandler("membership.subscription-upgraded", async (payload) => {
-    const p = payload as { memberId: string; planType: string; diffCents: number };
+    const p = payload as { memberId: string; planType: string; diffCents: number; subId: string };
     await recordUpgradeFee(p);
   });
 
