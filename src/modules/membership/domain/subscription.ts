@@ -46,3 +46,18 @@ export function prorateMonthlyFee(
 
   return Math.round((monthlyFeeCents * remainingDays) / daysInMonth);
 }
+
+/** 套餐切换差价：新月费 − 旧月费（全额，不按剩余天数折算） */
+export function calculatePlanDiff(oldFeeCents: number, newFeeCents: number): number {
+  return newFeeCents - oldFeeCents;
+}
+
+/** 套餐切换方向：价格更高 → 升级，更低 → 降级，相等 → 平级 */
+export function classifyPlanChange(
+  oldFeeCents: number,
+  newFeeCents: number
+): "UPGRADE" | "DOWNGRADE" | "SAME" {
+  if (newFeeCents > oldFeeCents) return "UPGRADE";
+  if (newFeeCents < oldFeeCents) return "DOWNGRADE";
+  return "SAME";
+}

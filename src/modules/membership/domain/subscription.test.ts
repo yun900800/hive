@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSubscriptionActive, prorateMonthlyFee } from "./subscription";
+import { isSubscriptionActive, prorateMonthlyFee, calculatePlanDiff, classifyPlanChange } from "./subscription";
 
 describe("membership subscription", () => {
   it("只有 ACTIVE 生效", () => {
@@ -52,5 +52,20 @@ describe("membership subscription", () => {
     const startDate = new Date(2026, 8, 1);
     const month = new Date(2026, 7, 1);
     expect(prorateMonthlyFee(89900, startDate, month)).toBe(0);
+  });
+
+  it("升级：新月费 > 旧月费，差价为正值，类型为 UPGRADE", () => {
+    expect(calculatePlanDiff(49900, 89900)).toBe(40000);
+    expect(classifyPlanChange(49900, 89900)).toBe("UPGRADE");
+  });
+
+  it("降级：新月费 < 旧月费，差价为负值，类型为 DOWNGRADE", () => {
+    expect(calculatePlanDiff(89900, 19900)).toBe(-70000);
+    expect(classifyPlanChange(89900, 19900)).toBe("DOWNGRADE");
+  });
+
+  it("平级：新月费 = 旧月费，差价为 0，类型为 SAME", () => {
+    expect(calculatePlanDiff(49900, 49900)).toBe(0);
+    expect(classifyPlanChange(49900, 49900)).toBe("SAME");
   });
 });
