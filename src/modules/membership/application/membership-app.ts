@@ -9,6 +9,7 @@ import {
   outboxEvents,
 } from "@/lib/db/schema";
 import { createEvent } from "@/shared/events";
+import { calculatePlanDiff, classifyPlanChange } from "../domain/subscription";
 import type { MemberTier, PlanType, SubscriptionStatus } from "../domain/types";
 
 /**
@@ -182,6 +183,100 @@ export async function subscribePlan(
   });
 
   return result;
+}
+
+/** 切换套餐：无生效订阅=首次订阅；有生效订阅=升级/降级/平级（实时生效，旧订阅置 CANCELLED） */
+export async function changeSubscription(
+  input: SubscribePlanInput
+): Promise<{
+  subscription: SubscriptionView;
+  changeType: "SUBSCRIBE" | "UPGRADE" | "DOWNGRADE" | "SAME";
+  diffCents: number;
+}> {
+  const plan = await db
+    .select()
+    .from(plans)
+    .where(eq(plans.id, input.planId))
+    .get();
+  if (!plan) throw new Error("套餐不存在");
+
+  const activeSub = await db
+    .select()
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.memberId, input.memberId),
+        eq(subscriptions.status, "ACTIVE")
+      )
+    )
+    .get();
+
+  // 首次订阅：复用现有 subscribePlan 逻辑
+  if (!activeSub) {
+    const sub = await subscribePlan(input);
+    return { subscription: sub, changeType: "SUBSCRIBE", diffCents: plan.monthlyFeeCents };
+  }
+
+  const diffCents = calculatePlanDiff(activeSub.monthlyFeeCents, plan.monthlyFeeCents);
+  const changeType = classifyPlanChange(activeSub.monthlyFeeCents, plan.monthlyFeeCents);
+
+  const now = new Date();
+  const end = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    now.getDate()
+  );
+
+  const result = await db.transaction(async (tx) => {
+    // 旧订阅 → CANCELLED
+    await tx
+      .update(subscriptions)
+      .set({ status: "CANCELLED", endDate: now, updatedAt: now })
+      .where(eq(subscriptions.id, activeSub.id))
+      .run();
+
+    // 新订阅 → ACTIVE
+    const sub = await tx
+      .insert(subscriptions)
+      .values({
+        memberId: input.memberId,
+        planId: plan.id,
+        planType: plan.planType,
+        monthlyFeeCents: plan.monthlyFeeCents,
+        startDate: now,
+        endDate: end,
+        status: "ACTIVE",
+      })
+      .returning()
+      .get();
+
+    // 事件：升级记录差价；降级/平级不产生费用（当月已付不退）
+    const event = createEvent({
+      eventType:
+        changeType === "UPGRADE"
+          ? "membership.subscription-upgraded"
+          : "membership.subscription-downgraded",
+      aggregateId: sub.id,
+      aggregateType: "Subscription",
+      payload:
+        changeType === "UPGRADE"
+          ? { memberId: input.memberId, planType: plan.planType, diffCents }
+          : { memberId: input.memberId, planType: plan.planType, oldMonthlyFeeCents: activeSub.monthlyFeeCents },
+    });
+    await tx
+      .insert(outboxEvents)
+      .values({
+        aggregateId: event.aggregateId,
+        aggregateType: event.aggregateType,
+        eventType: event.eventType,
+        payload: JSON.stringify(event.payload),
+      })
+      .run();
+
+    return sub;
+  });
+
+  return { subscription: result, changeType, diffCents };
 }
 
 /** 取消当前生效套餐 */
