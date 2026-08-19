@@ -13,7 +13,10 @@ function resolveSqliteUrl(url: string): string {
 }
 
 const rawUrl = process.env.DATABASE_URL ?? "./data/hive.db";
-const client = createClient({ url: resolveSqliteUrl(rawUrl) });
+const client = createClient({
+  url: resolveSqliteUrl(rawUrl),
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
 
 export const db = drizzle(client, { schema });
 
