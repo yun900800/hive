@@ -1,0 +1,16 @@
+name: Monthly Invoice
+
+on:
+  schedule:
+    # 每月 1 日 00:00 UTC 自动出账（Vercel Hobby 无 Cron，用 GitHub Actions 替代）
+    - cron: "0 0 1 * *"
+  workflow_dispatch: {}
+
+jobs:
+  invoice:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger monthly invoicing
+        run: |
+          curl -fsS -X GET "${{ secrets.VERCEL_URL }}/api/billing/monthly-invoice" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

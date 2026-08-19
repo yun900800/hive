@@ -540,6 +540,34 @@ export async function ensureMonthlyInvoice(memberId: string): Promise<InvoiceVie
   return generateMonthlyInvoice(memberId, month);
 }
 
+/**
+ * 惰性出账兜底：当月无账单且订阅 ACTIVE 时自动生成。
+ * 用于无 Cron 环境（Vercel Hobby）——用户访问账单页时保证能看到当月账单。
+ * 幂等：当月已有账单（含已支付）则跳过；无费用时静默。
+ */
+export async function ensureMonthlyInvoiceIfNeeded(memberId: string): Promise<void> {
+  const month = monthKey(new Date());
+  const existing = await db
+    .select({ id: invoices.id })
+    .from(invoices)
+    .where(and(eq(invoices.memberId, memberId), eq(invoices.billingMonth, month)))
+    .get();
+  if (existing) return;
+
+  const sub = await db
+    .select({ id: subscriptions.id })
+    .from(subscriptions)
+    .where(and(eq(subscriptions.memberId, memberId), eq(subscriptions.status, "ACTIVE")))
+    .get();
+  if (!sub) return;
+
+  try {
+    await generateMonthlyInvoice(memberId, month);
+  } catch {
+    // 当月暂无费用等 —— 静默，不阻塞页面
+  }
+}
+
 // ---------- 支付（模拟） ----------
 
 /** 模拟支付：PENDING/OVERDUE → PAID */

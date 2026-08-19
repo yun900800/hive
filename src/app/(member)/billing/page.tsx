@@ -4,6 +4,7 @@ import {
   listMyInvoices,
   getOutstandingBalance,
   getPaidTotal,
+  ensureMonthlyInvoiceIfNeeded,
 } from "@/modules/billing/application/billing-app";
 import { formatYuan, formatDateTime } from "@/lib/format";
 import { BillingActions } from "./billing-actions";
@@ -16,6 +17,8 @@ export default async function BillingPage() {
   if (!session?.user?.memberId) redirect("/login");
 
   const memberId = session.user.memberId;
+  // 惰性出账兜底：无 Cron 环境下，访问账单页时自动生成当月账单（幂等）
+  await ensureMonthlyInvoiceIfNeeded(memberId);
   const [invoices, outstanding, paidTotal] = await Promise.all([
     listMyInvoices(memberId),
     getOutstandingBalance(memberId),

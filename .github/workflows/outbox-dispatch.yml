@@ -1,0 +1,16 @@
+name: Outbox Dispatch
+
+on:
+  schedule:
+    # 每 5 分钟冲刷滞留事件（GitHub Actions 免费版最小间隔 5 分钟，实际可能延迟）
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger outbox dispatch
+        run: |
+          curl -fsS -X GET "${{ secrets.VERCEL_URL }}/api/outbox/dispatch" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
