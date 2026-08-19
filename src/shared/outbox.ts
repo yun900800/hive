@@ -54,12 +54,11 @@ export async function dispatchOutboxEvents(
   for (const row of pending) {
     const eventHandlers = getEventHandlers(row.eventType);
     if (eventHandlers.length === 0) {
-      // No subscriber yet — skip (mark processed to avoid re-polling the same rows).
-      await db
-        .update(outboxEvents)
-        .set({ status: "PROCESSED", processedAt: new Date() })
-        .where(eq(outboxEvents.id, row.id))
-        .run();
+      // 无订阅者：保留 PENDING 并记录日志，等待订阅者注册后重试。
+      // 不标记 PROCESSED —— 否则事件被静默丢弃（破坏 at-least-once 语义）。
+      console.warn(
+        `[outbox] 事件 ${row.eventType} 无订阅者，保留 PENDING 等待重试 (id=${row.id})`
+      );
       skipped += 1;
       continue;
     }
