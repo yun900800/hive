@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getSessionMemberId } from "@/lib/auth-guards";
 import {
   subscribePlan,
+  changeSubscription,
   cancelSubscription,
   getMember,
 } from "@/modules/membership/application/membership-app";
@@ -35,6 +36,31 @@ export async function subscribePlanAction(
     await subscribePlan({ memberId, planId });
   } catch (e) {
     return { error: e instanceof Error ? e.message : "订阅失败" };
+  }
+  await dispatchOutboxEvents();
+
+  revalidatePath("/profile");
+  revalidatePath("/subscription");
+  return { error: undefined };
+}
+
+/** 切换套餐（首次订阅 / 升级 / 降级 / 平级统一入口，实时生效） */
+export async function changeSubscriptionAction(
+  _prev: SubscribeState,
+  formData: FormData
+): Promise<SubscribeState> {
+  const memberId = await getSessionMemberId();
+  const planId = String(formData.get("planId") ?? "");
+
+  if (!memberId) {
+    return { error: "请先登录会员账号" };
+  }
+  if (!planId) return { error: "请选择套餐" };
+
+  try {
+    await changeSubscription({ memberId, planId });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "切换套餐失败" };
   }
   await dispatchOutboxEvents();
 
