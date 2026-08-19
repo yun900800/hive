@@ -215,6 +215,25 @@ export async function recordMembershipFee(params: {
   });
 }
 
+/** 升级差价 → MEMBERSHIP_FEE（referenceId 加 upgrade 前缀，避免与首订唯一索引冲突） */
+export async function recordUpgradeFee(params: {
+  memberId: string;
+  planType: string;
+  diffCents: number;
+}): Promise<void> {
+  const now = new Date();
+  await insertUsage({
+    memberId: params.memberId,
+    chargeType: "MEMBERSHIP_FEE",
+    description: `${params.planType} 套餐升级差价`,
+    referenceId: `sub-upgrade-${monthKey(now)}-${params.memberId}`,
+    durationMs: 0,
+    unitRateCents: 0,
+    amountCents: params.diffCents,
+    occurredAt: now,
+  });
+}
+
 // ---------- 月度出账 ----------
 
 export type InvoiceView = Invoice;

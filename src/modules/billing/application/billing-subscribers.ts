@@ -9,6 +9,7 @@ import {
   recordRoomUsage,
   recordFlexUsage,
   recordMembershipFee,
+  recordUpgradeFee,
 } from "./billing-app";
 
 /** 订阅 Booking / Membership 事件 → 写入 usage_records */
@@ -44,5 +45,15 @@ export function registerBillingSubscribers(): void {
   registerEventHandler("membership.subscription-changed", async (payload) => {
     const p = payload as { memberId: string; planType: string; monthlyFeeCents: number };
     await recordMembershipFee(p);
+  });
+
+  // 升级 → 记录差价；降级/平级 → 当月已付不退，不产生费用（事件保留用于审计/未来通知）
+  registerEventHandler("membership.subscription-upgraded", async (payload) => {
+    const p = payload as { memberId: string; planType: string; diffCents: number };
+    await recordUpgradeFee(p);
+  });
+
+  registerEventHandler("membership.subscription-downgraded", async () => {
+    // no-op：不产生费用
   });
 }
