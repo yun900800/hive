@@ -1,4 +1,4 @@
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, or, gte, lte } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   usageRecords,
@@ -550,7 +550,7 @@ export async function listMyInvoices(memberId: string): Promise<InvoiceView[]> {
   }));
 }
 
-/** 待支付总额（PENDING + OVERDUE） */
+/** 待支付总额（PENDING + OVERDUE 未支付账单） */
 export async function getOutstandingBalance(memberId: string): Promise<number> {
   const rows = await db
     .select({ totalCents: invoices.totalCents })
@@ -558,9 +558,19 @@ export async function getOutstandingBalance(memberId: string): Promise<number> {
     .where(
       and(
         eq(invoices.memberId, memberId),
-        eq(invoices.status, "PENDING")
+        or(eq(invoices.status, "PENDING"), eq(invoices.status, "OVERDUE"))
       )
     )
+    .all();
+  return rows.reduce((s, r) => s + r.totalCents, 0);
+}
+
+/** 已支付总额（PAID 账单） */
+export async function getPaidTotal(memberId: string): Promise<number> {
+  const rows = await db
+    .select({ totalCents: invoices.totalCents })
+    .from(invoices)
+    .where(and(eq(invoices.memberId, memberId), eq(invoices.status, "PAID")))
     .all();
   return rows.reduce((s, r) => s + r.totalCents, 0);
 }

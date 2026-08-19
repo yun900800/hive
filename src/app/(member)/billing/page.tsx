@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import {
   listMyInvoices,
   getOutstandingBalance,
+  getPaidTotal,
 } from "@/modules/billing/application/billing-app";
 import { formatYuan, formatDateTime } from "@/lib/format";
 import { BillingActions } from "./billing-actions";
@@ -15,9 +16,10 @@ export default async function BillingPage() {
   if (!session?.user?.memberId) redirect("/login");
 
   const memberId = session.user.memberId;
-  const [invoices, outstanding] = await Promise.all([
+  const [invoices, outstanding, paidTotal] = await Promise.all([
     listMyInvoices(memberId),
     getOutstandingBalance(memberId),
+    getPaidTotal(memberId),
   ]);
 
   return (
@@ -32,12 +34,18 @@ export default async function BillingPage() {
         <BillingActions action="generate" disabled={false} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm text-muted-foreground">待支付总额</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-bold">{formatYuan(outstanding)}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-muted-foreground">已支付总额</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-bold text-emerald-600">{formatYuan(paidTotal)}</CardContent>
         </Card>
       </div>
 
@@ -67,7 +75,12 @@ export default async function BillingPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <h3 className="mb-3 text-sm font-semibold text-muted-foreground">消费明细</h3>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-muted-foreground">消费明细</h3>
+                {inv.status !== "PAID" && (
+                  <BillingActions action="pay" invoiceId={inv.id} />
+                )}
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -102,11 +115,6 @@ export default async function BillingPage() {
                   </TableRow>
                 </TableBody>
               </Table>
-              {inv.status !== "PAID" && (
-                <div className="mt-4 flex justify-end">
-                  <BillingActions action="pay" invoiceId={inv.id} />
-                </div>
-              )}
             </CardContent>
           </Card>
         ))
