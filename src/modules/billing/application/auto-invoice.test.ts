@@ -261,6 +261,26 @@ describe("generateMonthlyInvoice — 自动出账", () => {
     expect(await billing.getOutstandingBalance(memberId)).toBe(40000);
     expect(await billing.getPaidTotal(memberId)).toBe(49900);
   });
+
+  it("追加差价到已有账单时也发布 InvoiceIssued 事件（通知）", async () => {
+    // 订阅 FLEX → 出账（生成新账单，发布事件）
+    await changeSubscription({ memberId, planId: "plan-flex" });
+    await billing.ensureMonthlyInvoice(memberId);
+    // 冲刷事件（模拟 dispatchOutboxEvents 消费）
+    await dispatchOutboxEvents();
+
+    // 升级 FIXED → 出账（追加差价到已有账单）
+    await changeSubscription({ memberId, planId: "plan-fixed" });
+    await billing.ensureMonthlyInvoice(memberId);
+
+    // 追加后应发布 InvoiceIssued 事件（供 Notification 消费）
+    const events = await testDb.select().from(schema.outboxEvents).all();
+    const issued = events.filter((e) => e.eventType === "billing.invoice-issued");
+    expect(issued.length).toBeGreaterThanOrEqual(2); // 生成 + 追加各一次
+    const last = issued[issued.length - 1];
+    const payload = JSON.parse(last.payload) as { totalCents: number };
+    expect(payload.totalCents).toBe(89900); // 追加后的总额
+  });
 });
 
 describe("ensureMonthlyInvoice — 订阅/升级后自动出账", () => {

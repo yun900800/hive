@@ -351,6 +351,19 @@ export async function generateMonthlyInvoice(
     const newTotalCents = Math.round(newTotalBefore * rate);
     const newDiscountApplied = newTotalBefore - newTotalCents;
 
+    // 追加也发布 InvoiceIssued 事件（供 Notification 消费）—— 与追加写入同一事务
+    const event = createEvent({
+      eventType: "billing.invoice-issued",
+      aggregateId: pendingInvoice.id,
+      aggregateType: "Invoice",
+      payload: {
+        invoiceId: pendingInvoice.id,
+        memberId: pendingInvoice.memberId,
+        billingMonth: pendingInvoice.billingMonth,
+        totalCents: newTotalCents,
+      },
+    });
+
     await db.transaction(async (tx) => {
       await tx
         .update(invoices)
@@ -373,6 +386,7 @@ export async function generateMonthlyInvoice(
           }))
         )
         .run();
+      await appendOutboxEvents(tx, [event]);
     });
 
     return {
