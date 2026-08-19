@@ -95,6 +95,15 @@ CREATE TABLE IF NOT EXISTS invoice_line_item (
   amountCents integer NOT NULL,
   referenceId text
 );
+CREATE TABLE IF NOT EXISTS notification (
+  id text PRIMARY KEY,
+  memberId text NOT NULL,
+  title text NOT NULL,
+  content text NOT NULL,
+  channel text DEFAULT 'IN_APP' NOT NULL,
+  status text DEFAULT 'SENT' NOT NULL,
+  createdAt integer
+);
 `;
 
 const PLANS = [
@@ -125,6 +134,7 @@ beforeEach(async () => {
   await client.execute("DELETE FROM usage_record");
   await client.execute("DELETE FROM subscription");
   await client.execute("DELETE FROM outbox_event");
+  await client.execute("DELETE FROM notification");
 });
 
 afterAll(async () => {
@@ -137,9 +147,11 @@ const { changeSubscription } = await import("../../membership/application/member
 const billing = await import("./billing-app");
 const { dispatchOutboxEvents } = await import("@/shared/outbox");
 const { registerBillingSubscribers } = await import("./billing-subscribers");
+const { registerNotificationSubscribers } = await import("../../notification/application/notification-subscribers");
 
-// 注册事件订阅者（Billing 记录会员费）
+// 注册事件订阅者（Billing 记录会员费 / Notification 发通知）
 registerBillingSubscribers();
+registerNotificationSubscribers();
 
 function currentMonth(): string {
   const now = new Date();
@@ -280,6 +292,23 @@ describe("generateMonthlyInvoice — 自动出账", () => {
     const last = issued[issued.length - 1];
     const payload = JSON.parse(last.payload) as { totalCents: number };
     expect(payload.totalCents).toBe(89900); // 追加后的总额
+  });
+
+  it("出账后 invoice-issued 事件立即被消费并生成通知（不滞留 PENDING）", async () => {
+    await changeSubscription({ memberId, planId: "plan-flex" });
+    const inv = await billing.ensureMonthlyInvoice(memberId);
+
+    // 事件应已被消费（PROCESSED），而非滞留 PENDING
+    const events = await testDb.select().from(schema.outboxEvents).all();
+    const issued = events.filter((e) => e.eventType === "billing.invoice-issued");
+    expect(issued).toHaveLength(1);
+    expect(issued[0].status).toBe("PROCESSED");
+
+    // 通知应已生成
+    const notifs = await testDb.select().from(schema.notifications).all();
+    expect(notifs).toHaveLength(1);
+    expect(notifs[0].content).toContain("499.00");
+    expect(notifs[0].memberId).toBe(memberId);
   });
 });
 

@@ -312,6 +312,8 @@ export async function generateMonthlyInvoice(
       : [];
   const invoicedRefIds = new Set(allLineItems.map((l) => l.referenceId).filter(Boolean));
 
+  let result: InvoiceView;
+
   // 未支付账单（PENDING/OVERDUE）→ 追加未入账消费明细
   const pendingInvoice = monthInvoices.find(
     (i) => i.status === "PENDING" || i.status === "OVERDUE"
@@ -326,7 +328,7 @@ export async function generateMonthlyInvoice(
       return (r.occurredAt?.getTime() ?? 0) > invoiceCreatedAtMs;
     });
     if (pending.length === 0) {
-      return {
+      result = {
         ...(pendingInvoice as unknown as Invoice),
         lineItems: existingItems.map((l) => ({
           chargeType: l.chargeType as ChargeType,
@@ -335,50 +337,184 @@ export async function generateMonthlyInvoice(
           referenceId: l.referenceId,
         })),
       };
+    } else {
+      const newItems = pending.map((r) => ({
+        chargeType: r.chargeType as ChargeType,
+        description: r.description,
+        amountCents: r.amountCents,
+        referenceId: r.referenceId,
+      }));
+
+      // 按原折扣率更新总额：totalBefore = totalCents + discountAppliedCents（精确反推）
+      const rate = (pendingInvoice.discountRate ?? 100) / 100;
+      const totalBefore = pendingInvoice.totalCents + pendingInvoice.discountAppliedCents;
+      const newTotalBefore = totalBefore + newItems.reduce((s, i) => s + i.amountCents, 0);
+      const newTotalCents = Math.round(newTotalBefore * rate);
+      const newDiscountApplied = newTotalBefore - newTotalCents;
+
+      // 追加也发布 InvoiceIssued 事件（供 Notification 消费）—— 与追加写入同一事务
+      const event = createEvent({
+        eventType: "billing.invoice-issued",
+        aggregateId: pendingInvoice.id,
+        aggregateType: "Invoice",
+        payload: {
+          invoiceId: pendingInvoice.id,
+          memberId: pendingInvoice.memberId,
+          billingMonth: pendingInvoice.billingMonth,
+          totalCents: newTotalCents,
+        },
+      });
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(invoices)
+          .set({
+            totalCents: newTotalCents,
+            discountAppliedCents: newDiscountApplied,
+            updatedAt: new Date(),
+          })
+          .where(eq(invoices.id, pendingInvoice.id))
+          .run();
+        await tx
+          .insert(invoiceLineItems)
+          .values(
+            newItems.map((l) => ({
+              invoiceId: pendingInvoice.id,
+              chargeType: l.chargeType,
+              description: l.description,
+              amountCents: l.amountCents,
+              referenceId: l.referenceId,
+            }))
+          )
+          .run();
+        await appendOutboxEvents(tx, [event]);
+      });
+
+      result = {
+        ...(pendingInvoice as unknown as Invoice),
+        totalCents: newTotalCents,
+        discountAppliedCents: newDiscountApplied,
+        lineItems: [...existingItems, ...newItems].map((l) => ({
+          chargeType: l.chargeType as ChargeType,
+          description: l.description,
+          amountCents: l.amountCents,
+          referenceId: l.referenceId,
+        })),
+      };
+    }
+  } else {
+    // 无未支付账单：生成新账单，只包含未入账消费明细（已支付账单已入账的跳过）
+    let items = rows
+      .filter((r) => !invoicedRefIds.has(r.referenceId))
+      .map((r) => ({
+        chargeType: r.chargeType as ChargeType,
+        description: r.description,
+        amountCents: r.amountCents,
+        referenceId: r.referenceId,
+      }));
+
+    // 无会员费记录时，从当月生效订阅补入（未入账才补）
+    if (!items.some((i) => i.chargeType === "MEMBERSHIP_FEE")) {
+      const sub = await db
+        .select({ monthlyFeeCents: subscriptions.monthlyFeeCents, planType: subscriptions.planType })
+        .from(subscriptions)
+        .where(
+          and(
+            eq(subscriptions.memberId, memberId),
+            eq(subscriptions.status, "ACTIVE"),
+            lte(subscriptions.startDate, end),
+            gte(subscriptions.endDate, start)
+          )
+        )
+        .get();
+      if (sub) {
+        const syntheticRef = `sub-monthly-${billingMonth}-${memberId}`;
+        if (!invoicedRefIds.has(syntheticRef)) {
+          items.push({
+            chargeType: "MEMBERSHIP_FEE",
+            description: `${sub.planType} 套餐月费`,
+            amountCents: sub.monthlyFeeCents,
+            referenceId: syntheticRef,
+          });
+        }
+      }
     }
 
-    const newItems = pending.map((r) => ({
-      chargeType: r.chargeType as ChargeType,
-      description: r.description,
-      amountCents: r.amountCents,
-      referenceId: r.referenceId,
-    }));
+    const member = await db.select().from(members).where(eq(members.id, memberId)).get();
 
-    // 按原折扣率更新总额：totalBefore = totalCents + discountAppliedCents（精确反推）
-    const rate = (pendingInvoice.discountRate ?? 100) / 100;
-    const totalBefore = pendingInvoice.totalCents + pendingInvoice.discountAppliedCents;
-    const newTotalBefore = totalBefore + newItems.reduce((s, i) => s + i.amountCents, 0);
-    const newTotalCents = Math.round(newTotalBefore * rate);
-    const newDiscountApplied = newTotalBefore - newTotalCents;
+    // 灵活区月封顶（≤ 月费 120%）—— 按比例分摊到每条 FLEX_USAGE 明细
+    const flexRows = items.filter((i) => i.chargeType === "FLEX_USAGE");
+    if (flexRows.length > 0) {
+      const membershipFee = items.find((i) => i.chargeType === "MEMBERSHIP_FEE")?.amountCents ?? 0;
+      const flexTotal = flexRows.reduce((s, i) => s + i.amountCents, 0);
+      const cappedTotal = applyFlexMonthlyCap({
+        flexTotalCents: flexTotal,
+        monthlyFeeCents: membershipFee,
+      });
+      if (cappedTotal < flexTotal) {
+        let assigned = 0;
+        flexRows.forEach((row, idx) => {
+          if (idx === flexRows.length - 1) {
+            row.amountCents = cappedTotal - assigned; // 最后一条补舍入差
+          } else {
+            row.amountCents = Math.round((row.amountCents * cappedTotal) / flexTotal);
+            assigned += row.amountCents;
+          }
+        });
+      }
+    }
 
-    // 追加也发布 InvoiceIssued 事件（供 Notification 消费）—— 与追加写入同一事务
+    const lineItems: InvoiceLineItem[] = items;
+
+    if (lineItems.length === 0) {
+      throw new Error("当月暂无费用，无需出账");
+    }
+
+    const now = new Date();
+    const invoice = buildInvoice({
+      id: crypto.randomUUID(),
+      memberId,
+      billingMonth,
+      lineItems,
+      tier: member?.tier ?? "BASIC",
+      dueDate: new Date(new Date(end).getTime() + 10 * 24 * HOUR_MS),
+      createdAt: now,
+    });
+
+    // 发布 InvoiceIssued 事件（供 Notification 消费）—— 与账单写入同一事务，保证原子性
     const event = createEvent({
       eventType: "billing.invoice-issued",
-      aggregateId: pendingInvoice.id,
+      aggregateId: invoice.id,
       aggregateType: "Invoice",
       payload: {
-        invoiceId: pendingInvoice.id,
-        memberId: pendingInvoice.memberId,
-        billingMonth: pendingInvoice.billingMonth,
-        totalCents: newTotalCents,
+        invoiceId: invoice.id,
+        memberId: invoice.memberId,
+        billingMonth: invoice.billingMonth,
+        totalCents: invoice.totalCents,
       },
     });
 
     await db.transaction(async (tx) => {
       await tx
-        .update(invoices)
-        .set({
-          totalCents: newTotalCents,
-          discountAppliedCents: newDiscountApplied,
-          updatedAt: new Date(),
+        .insert(invoices)
+        .values({
+          id: invoice.id,
+          memberId: invoice.memberId,
+          billingMonth: invoice.billingMonth,
+          totalCents: invoice.totalCents,
+          discountRate: Math.round(invoice.discountRate * 100),
+          discountAppliedCents: invoice.discountAppliedCents,
+          paidAmountCents: 0,
+          status: invoice.status,
+          dueDate: invoice.dueDate,
+          createdAt: invoice.createdAt,
         })
-        .where(eq(invoices.id, pendingInvoice.id))
         .run();
       await tx
         .insert(invoiceLineItems)
         .values(
-          newItems.map((l) => ({
-            invoiceId: pendingInvoice.id,
+          invoice.lineItems.map((l) => ({
+            invoiceId: invoice.id,
             chargeType: l.chargeType,
             description: l.description,
             amountCents: l.amountCents,
@@ -389,142 +525,12 @@ export async function generateMonthlyInvoice(
       await appendOutboxEvents(tx, [event]);
     });
 
-    return {
-      ...(pendingInvoice as unknown as Invoice),
-      totalCents: newTotalCents,
-      discountAppliedCents: newDiscountApplied,
-      lineItems: [...existingItems, ...newItems].map((l) => ({
-        chargeType: l.chargeType as ChargeType,
-        description: l.description,
-        amountCents: l.amountCents,
-        referenceId: l.referenceId,
-      })),
-    };
+    result = invoice;
   }
 
-  // 无未支付账单：生成新账单，只包含未入账消费明细（已支付账单已入账的跳过）
-  let items = rows
-    .filter((r) => !invoicedRefIds.has(r.referenceId))
-    .map((r) => ({
-      chargeType: r.chargeType as ChargeType,
-      description: r.description,
-      amountCents: r.amountCents,
-      referenceId: r.referenceId,
-    }));
-
-  // 无会员费记录时，从当月生效订阅补入（未入账才补）
-  if (!items.some((i) => i.chargeType === "MEMBERSHIP_FEE")) {
-    const sub = await db
-      .select({ monthlyFeeCents: subscriptions.monthlyFeeCents, planType: subscriptions.planType })
-      .from(subscriptions)
-      .where(
-        and(
-          eq(subscriptions.memberId, memberId),
-          eq(subscriptions.status, "ACTIVE"),
-          lte(subscriptions.startDate, end),
-          gte(subscriptions.endDate, start)
-        )
-      )
-      .get();
-    if (sub) {
-      const syntheticRef = `sub-monthly-${billingMonth}-${memberId}`;
-      if (!invoicedRefIds.has(syntheticRef)) {
-        items.push({
-          chargeType: "MEMBERSHIP_FEE",
-          description: `${sub.planType} 套餐月费`,
-          amountCents: sub.monthlyFeeCents,
-          referenceId: syntheticRef,
-        });
-      }
-    }
-  }
-
-  const member = await db.select().from(members).where(eq(members.id, memberId)).get();
-
-  // 灵活区月封顶（≤ 月费 120%）—— 按比例分摊到每条 FLEX_USAGE 明细
-  const flexRows = items.filter((i) => i.chargeType === "FLEX_USAGE");
-  if (flexRows.length > 0) {
-    const membershipFee = items.find((i) => i.chargeType === "MEMBERSHIP_FEE")?.amountCents ?? 0;
-    const flexTotal = flexRows.reduce((s, i) => s + i.amountCents, 0);
-    const cappedTotal = applyFlexMonthlyCap({
-      flexTotalCents: flexTotal,
-      monthlyFeeCents: membershipFee,
-    });
-    if (cappedTotal < flexTotal) {
-      let assigned = 0;
-      flexRows.forEach((row, idx) => {
-        if (idx === flexRows.length - 1) {
-          row.amountCents = cappedTotal - assigned; // 最后一条补舍入差
-        } else {
-          row.amountCents = Math.round((row.amountCents * cappedTotal) / flexTotal);
-          assigned += row.amountCents;
-        }
-      });
-    }
-  }
-
-  const lineItems: InvoiceLineItem[] = items;
-
-  if (lineItems.length === 0) {
-    throw new Error("当月暂无费用，无需出账");
-  }
-
-  const now = new Date();
-  const invoice = buildInvoice({
-    id: crypto.randomUUID(),
-    memberId,
-    billingMonth,
-    lineItems,
-    tier: member?.tier ?? "BASIC",
-    dueDate: new Date(new Date(end).getTime() + 10 * 24 * HOUR_MS),
-    createdAt: now,
-  });
-
-  // 发布 InvoiceIssued 事件（供 Notification 消费）—— 与账单写入同一事务，保证原子性
-  const event = createEvent({
-    eventType: "billing.invoice-issued",
-    aggregateId: invoice.id,
-    aggregateType: "Invoice",
-    payload: {
-      invoiceId: invoice.id,
-      memberId: invoice.memberId,
-      billingMonth: invoice.billingMonth,
-      totalCents: invoice.totalCents,
-    },
-  });
-
-  await db.transaction(async (tx) => {
-    await tx
-      .insert(invoices)
-      .values({
-        id: invoice.id,
-        memberId: invoice.memberId,
-        billingMonth: invoice.billingMonth,
-        totalCents: invoice.totalCents,
-        discountRate: Math.round(invoice.discountRate * 100),
-        discountAppliedCents: invoice.discountAppliedCents,
-        paidAmountCents: 0,
-        status: invoice.status,
-        dueDate: invoice.dueDate,
-        createdAt: invoice.createdAt,
-      })
-      .run();
-    await tx
-      .insert(invoiceLineItems)
-      .values(
-        invoice.lineItems.map((l) => ({
-          invoiceId: invoice.id,
-          chargeType: l.chargeType,
-          description: l.description,
-          amountCents: l.amountCents,
-          referenceId: l.referenceId,
-        }))
-      )
-      .run();
-    await appendOutboxEvents(tx, [event]);
-  });
-
-  return invoice;
+  // 冲刷本次出账新发布的事件（invoice-issued → 通知），避免事件滞留 PENDING
+  await dispatchOutboxEvents();
+  return result;
 }
 
 /** 订阅/升级/降级后自动出账：冲刷事件 → 生成或追加当月账单 */
