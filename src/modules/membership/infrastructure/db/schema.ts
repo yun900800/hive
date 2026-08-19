@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 import {
   MEMBER_TIERS,
   PLAN_TYPES,
@@ -85,6 +86,9 @@ export const subscriptions = sqliteTable(
   (table) => [
     index("subscription_member_idx").on(table.memberId),
     index("subscription_status_idx").on(table.status),
+    uniqueIndex("subscription_active_member_idx")
+      .on(table.memberId)
+      .where(sql`${table.status} = 'ACTIVE'`),
   ]
 );
 

@@ -9,6 +9,7 @@ import {
   recordRoomUsage,
   recordFlexUsage,
   recordMembershipFee,
+  recordBaseMembershipFee,
   recordUpgradeFee,
 } from "./billing-app";
 
@@ -47,13 +48,36 @@ export function registerBillingSubscribers(): void {
     await recordMembershipFee(p);
   });
 
-  // 升级 → 记录差价；降级/平级 → 当月已付不退，不产生费用（事件保留用于审计/未来通知）
+  // 升级 → 先补记当月基础月费（旧价），再记录差价
   registerEventHandler("membership.subscription-upgraded", async (payload) => {
-    const p = payload as { memberId: string; planType: string; diffCents: number; subId: string };
+    const p = payload as {
+      memberId: string;
+      planType: string;
+      diffCents: number;
+      subId: string;
+      oldPlanType: string;
+      oldMonthlyFeeCents: number;
+    };
+    await recordBaseMembershipFee({
+      memberId: p.memberId,
+      planType: p.oldPlanType,
+      monthlyFeeCents: p.oldMonthlyFeeCents,
+    });
     await recordUpgradeFee(p);
   });
 
-  registerEventHandler("membership.subscription-downgraded", async () => {
-    // no-op：不产生费用
+  // 降级/平级 → 补记当月基础月费（旧价）；不产生新费用
+  registerEventHandler("membership.subscription-downgraded", async (payload) => {
+    const p = payload as {
+      memberId: string;
+      planType: string;
+      oldMonthlyFeeCents: number;
+      oldPlanType: string;
+    };
+    await recordBaseMembershipFee({
+      memberId: p.memberId,
+      planType: p.oldPlanType,
+      monthlyFeeCents: p.oldMonthlyFeeCents,
+    });
   });
 }

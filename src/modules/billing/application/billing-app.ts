@@ -215,6 +215,38 @@ export async function recordMembershipFee(params: {
   });
 }
 
+/** 切换套餐时补记当月基础月费（按旧价；当月已付不退）。当月已有 MEMBERSHIP_FEE 则不重复记录。 */
+export async function recordBaseMembershipFee(params: {
+  memberId: string;
+  planType: string;
+  monthlyFeeCents: number;
+}): Promise<void> {
+  const now = new Date();
+  const month = monthKey(now);
+  const existing = await db
+    .select({ id: usageRecords.id })
+    .from(usageRecords)
+    .where(
+      and(
+        eq(usageRecords.memberId, params.memberId),
+        eq(usageRecords.chargeType, "MEMBERSHIP_FEE"),
+        eq(usageRecords.billingMonth, month)
+      )
+    )
+    .get();
+  if (existing) return;
+  await insertUsage({
+    memberId: params.memberId,
+    chargeType: "MEMBERSHIP_FEE",
+    description: `${params.planType} 套餐月费`,
+    referenceId: `sub-base-${month}-${params.memberId}`,
+    durationMs: 0,
+    unitRateCents: 0,
+    amountCents: params.monthlyFeeCents,
+    occurredAt: now,
+  });
+}
+
 /** 升级差价 → MEMBERSHIP_FEE（referenceId 用新订阅 id，天然唯一且幂等） */
 export async function recordUpgradeFee(params: {
   memberId: string;
