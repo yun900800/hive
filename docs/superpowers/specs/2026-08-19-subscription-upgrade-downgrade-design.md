@@ -55,13 +55,22 @@ changeSubscription(memberId, planId)
 - 降级后当月账单的正确性：首次订阅时已记录旧价 MEMBERSHIP_FEE，`generateMonthlyInvoice`
   的补入逻辑仅在"无 MEMBERSHIP_FEE 记录"时从 ACTIVE 订阅补入，故当月不会错误补入新价 ✅
 
+**跨月切换（老会员月中切换，当月尚无 MEMBERSHIP_FEE 记录）**（final review 修复，commit ae25b51）：
+
+- 升级/降级事件 payload 携带 `oldPlanType`（升级另加 `oldMonthlyFeeCents`）
+- Billing 新增 `recordBaseMembershipFee`：当月无 MEMBERSHIP_FEE 时按**旧价**补记基础月费
+  （referenceId `sub-base-{month}-{memberId}`），已有记录则跳过
+- 升级 handler：先补基础费（旧价）再记差价 → 当月账单 = 旧价 + 差价
+- 降级 handler：补基础费（旧价）→ 当月账单 = 旧价（已付不退）
+- 同月内先订阅再升级：首次订阅已记基础费，guard 跳过，只加差价 ✅
+
 ### 2.4 事件设计
 
 | 事件类型 | 触发场景 | payload | Billing 行为 |
 |---------|---------|---------|-------------|
 | `membership.subscription-changed`（现有） | 首次订阅 | memberId, planType, monthlyFeeCents | 记录全额月费（不变） |
-| `membership.subscription-upgraded`（新增） | 升级 | memberId, planType, diffCents | 记录差价 |
-| `membership.subscription-downgraded`（新增） | 降级 / 平级 | memberId, planType, oldMonthlyFeeCents | 不记录费用 |
+| `membership.subscription-upgraded`（新增） | 升级 | memberId, planType, diffCents, subId, oldPlanType, oldMonthlyFeeCents | 补基础费（旧价，如缺）+ 记录差价 |
+| `membership.subscription-downgraded`（新增） | 降级 / 平级 | memberId, planType, oldMonthlyFeeCents, oldPlanType | 补基础费（旧价，如缺） |
 
 ## 三、接口与文件变更
 
