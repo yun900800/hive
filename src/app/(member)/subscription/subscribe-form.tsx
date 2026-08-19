@@ -6,7 +6,7 @@ import { changeSubscriptionAction, type SubscribeState } from "@/modules/members
 
 const initialState: SubscribeState = {};
 
-export type PlanVariant = "SUBSCRIBE" | "CURRENT" | "UPGRADE" | "DOWNGRADE";
+export type PlanVariant = "SUBSCRIBE" | "CURRENT" | "UPGRADE" | "DOWNGRADE" | "SAME";
 
 export function SubscribeForm({
   planId,
@@ -27,7 +27,9 @@ export function SubscribeForm({
         ? "升级"
         : variant === "DOWNGRADE"
           ? "降级"
-          : "立即订阅";
+          : variant === "SAME"
+            ? "切换"
+            : "立即订阅";
 
   return (
     <form

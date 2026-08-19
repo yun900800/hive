@@ -5,6 +5,7 @@ import {
   getActiveSubscription,
 } from "@/modules/membership/application/membership-app";
 import { formatYuan } from "@/lib/format";
+import { classifyPlanChange } from "@/modules/membership/domain/subscription";
 import { SubscribeForm, type PlanVariant } from "./subscribe-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -35,9 +36,11 @@ export default async function SubscriptionPage() {
             ? "SUBSCRIBE"
             : isCurrent
               ? "CURRENT"
-              : p.monthlyFeeCents > activeSub.monthlyFeeCents
+              : classifyPlanChange(activeSub.monthlyFeeCents, p.monthlyFeeCents) === "UPGRADE"
                 ? "UPGRADE"
-                : "DOWNGRADE";
+                : classifyPlanChange(activeSub.monthlyFeeCents, p.monthlyFeeCents) === "SAME"
+                  ? "SAME"
+                  : "DOWNGRADE";
           return (
             <Card key={p.id}>
               <CardHeader>
