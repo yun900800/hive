@@ -1,4 +1,4 @@
-import { eq, and, or, gte, lte } from "drizzle-orm";
+import { eq, and, or, gte, lte, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   usageRecords,
@@ -273,7 +273,9 @@ export type InvoiceView = Invoice;
 
 /**
  * 生成本月账单：先冲刷事件（自愈），再聚合 usage_records 出账。
- * 明细行 = 每条消费明细一行（不聚合）；已有账单时追加未入账的消费明细（如升级差价）。
+ * 明细行 = 每条消费明细一行（不聚合）。
+ * 已有未支付账单（PENDING/OVERDUE）→ 追加未入账消费明细（如升级差价）；
+ * 无未支付账单（含已支付账单）→ 生成新账单，只包含未入账消费明细。
  */
 export async function generateMonthlyInvoice(
   memberId: string,
@@ -281,12 +283,6 @@ export async function generateMonthlyInvoice(
 ): Promise<InvoiceView> {
   // 自愈：确保待处理事件（签退/完成/离场/订阅）已计入 usage_records
   await dispatchOutboxEvents();
-
-  const existing = await db
-    .select()
-    .from(invoices)
-    .where(and(eq(invoices.memberId, memberId), eq(invoices.billingMonth, billingMonth)))
-    .get();
 
   const { start, end } = monthRange(billingMonth);
   const rows = await db
@@ -300,24 +296,38 @@ export async function generateMonthlyInvoice(
     )
     .all();
 
-  // 已有账单：追加未入账的消费明细
-  if (existing) {
-    const existingItems = await db
-      .select()
-      .from(invoiceLineItems)
-      .where(eq(invoiceLineItems.invoiceId, existing.id))
-      .all();
-    const existingRefIds = new Set(existingItems.map((l) => l.referenceId).filter(Boolean));
+  // 当月所有账单 + 已入账消费明细的 referenceId
+  const monthInvoices = await db
+    .select()
+    .from(invoices)
+    .where(and(eq(invoices.memberId, memberId), eq(invoices.billingMonth, billingMonth)))
+    .all();
+  const allLineItems =
+    monthInvoices.length > 0
+      ? await db
+          .select()
+          .from(invoiceLineItems)
+          .where(inArray(invoiceLineItems.invoiceId, monthInvoices.map((i) => i.id)))
+          .all()
+      : [];
+  const invoicedRefIds = new Set(allLineItems.map((l) => l.referenceId).filter(Boolean));
+
+  // 未支付账单（PENDING/OVERDUE）→ 追加未入账消费明细
+  const pendingInvoice = monthInvoices.find(
+    (i) => i.status === "PENDING" || i.status === "OVERDUE"
+  );
+  if (pendingInvoice) {
+    const existingItems = allLineItems.filter((l) => l.invoiceId === pendingInvoice.id);
     // 历史数据兜底：referenceId 为 null 的旧明细行无法精确匹配，
     // 只追加账单生成后新发生的消费明细（occurredAt 晚于账单创建时间），避免重复入账
-    const invoiceCreatedAtMs = existing.createdAt?.getTime() ?? 0;
+    const invoiceCreatedAtMs = pendingInvoice.createdAt?.getTime() ?? 0;
     const pending = rows.filter((r) => {
-      if (existingRefIds.has(r.referenceId)) return false;
+      if (invoicedRefIds.has(r.referenceId)) return false;
       return (r.occurredAt?.getTime() ?? 0) > invoiceCreatedAtMs;
     });
     if (pending.length === 0) {
       return {
-        ...(existing as unknown as Invoice),
+        ...(pendingInvoice as unknown as Invoice),
         lineItems: existingItems.map((l) => ({
           chargeType: l.chargeType as ChargeType,
           description: l.description,
@@ -335,8 +345,8 @@ export async function generateMonthlyInvoice(
     }));
 
     // 按原折扣率更新总额：totalBefore = totalCents + discountAppliedCents（精确反推）
-    const rate = (existing.discountRate ?? 100) / 100;
-    const totalBefore = existing.totalCents + existing.discountAppliedCents;
+    const rate = (pendingInvoice.discountRate ?? 100) / 100;
+    const totalBefore = pendingInvoice.totalCents + pendingInvoice.discountAppliedCents;
     const newTotalBefore = totalBefore + newItems.reduce((s, i) => s + i.amountCents, 0);
     const newTotalCents = Math.round(newTotalBefore * rate);
     const newDiscountApplied = newTotalBefore - newTotalCents;
@@ -349,13 +359,13 @@ export async function generateMonthlyInvoice(
           discountAppliedCents: newDiscountApplied,
           updatedAt: new Date(),
         })
-        .where(eq(invoices.id, existing.id))
+        .where(eq(invoices.id, pendingInvoice.id))
         .run();
       await tx
         .insert(invoiceLineItems)
         .values(
           newItems.map((l) => ({
-            invoiceId: existing.id,
+            invoiceId: pendingInvoice.id,
             chargeType: l.chargeType,
             description: l.description,
             amountCents: l.amountCents,
@@ -366,7 +376,7 @@ export async function generateMonthlyInvoice(
     });
 
     return {
-      ...(existing as unknown as Invoice),
+      ...(pendingInvoice as unknown as Invoice),
       totalCents: newTotalCents,
       discountAppliedCents: newDiscountApplied,
       lineItems: [...existingItems, ...newItems].map((l) => ({
@@ -378,14 +388,17 @@ export async function generateMonthlyInvoice(
     };
   }
 
-  let items = rows.map((r) => ({
-    chargeType: r.chargeType as ChargeType,
-    description: r.description,
-    amountCents: r.amountCents,
-    referenceId: r.referenceId,
-  }));
+  // 无未支付账单：生成新账单，只包含未入账消费明细（已支付账单已入账的跳过）
+  let items = rows
+    .filter((r) => !invoicedRefIds.has(r.referenceId))
+    .map((r) => ({
+      chargeType: r.chargeType as ChargeType,
+      description: r.description,
+      amountCents: r.amountCents,
+      referenceId: r.referenceId,
+    }));
 
-  // 无会员费记录时，从当月生效订阅补入
+  // 无会员费记录时，从当月生效订阅补入（未入账才补）
   if (!items.some((i) => i.chargeType === "MEMBERSHIP_FEE")) {
     const sub = await db
       .select({ monthlyFeeCents: subscriptions.monthlyFeeCents, planType: subscriptions.planType })
@@ -400,12 +413,15 @@ export async function generateMonthlyInvoice(
       )
       .get();
     if (sub) {
-      items.push({
-        chargeType: "MEMBERSHIP_FEE",
-        description: `${sub.planType} 套餐月费`,
-        amountCents: sub.monthlyFeeCents,
-        referenceId: `sub-monthly-${billingMonth}-${memberId}`,
-      });
+      const syntheticRef = `sub-monthly-${billingMonth}-${memberId}`;
+      if (!invoicedRefIds.has(syntheticRef)) {
+        items.push({
+          chargeType: "MEMBERSHIP_FEE",
+          description: `${sub.planType} 套餐月费`,
+          amountCents: sub.monthlyFeeCents,
+          referenceId: syntheticRef,
+        });
+      }
     }
   }
 

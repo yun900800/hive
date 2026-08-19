@@ -32,7 +32,7 @@ export const usageRecords = sqliteTable(
   ]
 );
 
-/** invoices — 账单（Billing 聚合根，一个会员每月一张） */
+/** invoices — 账单（Billing 聚合根；一个会员每月可有多张：已支付账单不追加，新费用生成新账单） */
 export const invoices = sqliteTable(
   "invoice",
   {
@@ -58,7 +58,7 @@ export const invoices = sqliteTable(
   },
   (table) => [
     index("invoice_member_idx").on(table.memberId),
-    uniqueIndex("invoice_member_month_idx").on(table.memberId, table.billingMonth),
+    index("invoice_member_month_idx").on(table.memberId, table.billingMonth),
   ]
 );
 

@@ -232,6 +232,35 @@ describe("generateMonthlyInvoice — 自动出账", () => {
     expect(flexTotal).toBe(59880); // cap = round(49900 * 1.2)
     expect(inv.totalCents).toBe(49900 + 59880);
   });
+
+  it("已支付账单不追加差价，差价生成新的独立账单", async () => {
+    // 订阅 FLEX → 出账 ¥499 → 支付（PAID）
+    await changeSubscription({ memberId, planId: "plan-flex" });
+    await billing.ensureMonthlyInvoice(memberId);
+    const first = await billing.listMyInvoices(memberId);
+    expect(first).toHaveLength(1);
+    await billing.processPayment(first[0].id, memberId);
+
+    // 升级 FIXED（差价 ¥400）→ 出账：不应追加到已支付账单，应生成新账单
+    await changeSubscription({ memberId, planId: "plan-fixed" });
+    const inv = await billing.ensureMonthlyInvoice(memberId);
+
+    const all = await billing.listMyInvoices(memberId);
+    expect(all).toHaveLength(2);
+    const paid = all.find((i) => i.status === "PAID");
+    const pending = all.find((i) => i.status === "PENDING");
+    expect(paid?.totalCents).toBe(49900); // 已支付账单保持 ¥499，不被追加
+    expect(pending?.totalCents).toBe(40000); // 差价是独立账单 ¥400
+    expect(inv.id).toBe(pending?.id);
+    // 新账单只含差价，不含已入账的基础费
+    const feeRows = pending?.lineItems.filter((l) => l.chargeType === "MEMBERSHIP_FEE") ?? [];
+    expect(feeRows.reduce((s, l) => s + l.amountCents, 0)).toBe(40000);
+    expect(feeRows.some((l) => l.description.includes("升级差价"))).toBe(true);
+
+    // 统计：待支付 = 差价，已支付 = 基础费
+    expect(await billing.getOutstandingBalance(memberId)).toBe(40000);
+    expect(await billing.getPaidTotal(memberId)).toBe(49900);
+  });
 });
 
 describe("ensureMonthlyInvoice — 订阅/升级后自动出账", () => {
