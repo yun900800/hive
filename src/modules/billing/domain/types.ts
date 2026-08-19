@@ -23,11 +23,12 @@ export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
 // ---------- 聚合实体 ----------
 
-/** InvoiceLineItem — 账单明细行（值对象） */
+/** InvoiceLineItem — 账单明细行（值对象；每行对应一条消费明细 usage_record） */
 export type InvoiceLineItem = {
   chargeType: ChargeType;
   description: string;
   amountCents: number;
+  referenceId?: string | null; // 关联 usage_record.referenceId，用于追加未入账消费明细
 };
 
 /** Invoice — 账单（聚合根，一个会员每月一张） */

@@ -10,6 +10,7 @@ import {
   getMember,
 } from "@/modules/membership/application/membership-app";
 import { dispatchOutboxEvents } from "@/shared/outbox";
+import { ensureMonthlyInvoice } from "@/modules/billing/application/billing-app";
 // 注册事件订阅者（Billing 记录会员费 / Notification / Access）
 import "@/modules/billing/application/bootstrap";
 import "@/modules/access/application/bootstrap";
@@ -38,9 +39,16 @@ export async function subscribePlanAction(
     return { error: e instanceof Error ? e.message : "订阅失败" };
   }
   await dispatchOutboxEvents();
+  // 自动出账：订阅后立即生成当月账单
+  try {
+    await ensureMonthlyInvoice(memberId);
+  } catch (e) {
+    console.error("订阅后自动出账失败", e);
+  }
 
   revalidatePath("/profile");
   revalidatePath("/subscription");
+  revalidatePath("/billing");
   return { error: undefined };
 }
 
@@ -63,9 +71,16 @@ export async function changeSubscriptionAction(
     return { error: e instanceof Error ? e.message : "切换套餐失败" };
   }
   await dispatchOutboxEvents();
+  // 自动出账：升级/降级后立即生成或追加当月账单
+  try {
+    await ensureMonthlyInvoice(memberId);
+  } catch (e) {
+    console.error("切换套餐后自动出账失败", e);
+  }
 
   revalidatePath("/profile");
   revalidatePath("/subscription");
+  revalidatePath("/billing");
   return { error: undefined };
 }
 

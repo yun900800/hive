@@ -62,7 +62,7 @@ export const invoices = sqliteTable(
   ]
 );
 
-/** invoice_line_items — 账单明细行（Invoice 聚合的子实体） */
+/** invoice_line_items — 账单明细行（Invoice 聚合的子实体；每行对应一条消费明细 usage_record） */
 export const invoiceLineItems = sqliteTable(
   "invoice_line_item",
   {
@@ -77,6 +77,7 @@ export const invoiceLineItems = sqliteTable(
       .notNull(),
     description: text("description").notNull(),
     amountCents: integer("amountCents").notNull(),
+    referenceId: text("referenceId"), // 关联 usage_record.referenceId，用于追加未入账消费明细
   },
   (table) => [index("invoice_line_invoice_idx").on(table.invoiceId)]
 );

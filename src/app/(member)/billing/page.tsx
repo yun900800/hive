@@ -67,6 +67,7 @@ export default async function BillingPage() {
               </div>
             </CardHeader>
             <CardContent>
+              <h3 className="mb-3 text-sm font-semibold text-muted-foreground">消费明细</h3>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -94,6 +95,11 @@ export default async function BillingPage() {
                       </TableCell>
                     </TableRow>
                   )}
+                  <TableRow className="font-semibold">
+                    <TableCell />
+                    <TableCell>合计</TableCell>
+                    <TableCell className="text-right">{formatYuan(inv.totalCents)}</TableCell>
+                  </TableRow>
                 </TableBody>
               </Table>
               {inv.status !== "PAID" && (

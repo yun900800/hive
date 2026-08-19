@@ -271,7 +271,10 @@ export async function recordUpgradeFee(params: {
 
 export type InvoiceView = Invoice;
 
-/** 生成本月账单：先冲刷事件（自愈），再聚合 usage_records 出账 */
+/**
+ * 生成本月账单：先冲刷事件（自愈），再聚合 usage_records 出账。
+ * 明细行 = 每条消费明细一行（不聚合）；已有账单时追加未入账的消费明细（如升级差价）。
+ */
 export async function generateMonthlyInvoice(
   memberId: string,
   billingMonth: string
@@ -284,7 +287,6 @@ export async function generateMonthlyInvoice(
     .from(invoices)
     .where(and(eq(invoices.memberId, memberId), eq(invoices.billingMonth, billingMonth)))
     .get();
-  if (existing) return existing as unknown as Invoice;
 
   const { start, end } = monthRange(billingMonth);
   const rows = await db
@@ -298,10 +300,73 @@ export async function generateMonthlyInvoice(
     )
     .all();
 
+  // 已有账单：追加未入账的消费明细（referenceId 不在已有明细行中）
+  if (existing) {
+    const existingItems = await db
+      .select()
+      .from(invoiceLineItems)
+      .where(eq(invoiceLineItems.invoiceId, existing.id))
+      .all();
+    const existingRefIds = new Set(existingItems.map((l) => l.referenceId).filter(Boolean));
+    const pending = rows.filter((r) => !existingRefIds.has(r.referenceId));
+    if (pending.length === 0) return existing as unknown as Invoice;
+
+    const newItems = pending.map((r) => ({
+      chargeType: r.chargeType as ChargeType,
+      description: r.description,
+      amountCents: r.amountCents,
+      referenceId: r.referenceId,
+    }));
+
+    // 按原折扣率更新总额：totalBefore = totalCents + discountAppliedCents（精确反推）
+    const rate = (existing.discountRate ?? 100) / 100;
+    const totalBefore = existing.totalCents + existing.discountAppliedCents;
+    const newTotalBefore = totalBefore + newItems.reduce((s, i) => s + i.amountCents, 0);
+    const newTotalCents = Math.round(newTotalBefore * rate);
+    const newDiscountApplied = newTotalBefore - newTotalCents;
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(invoices)
+        .set({
+          totalCents: newTotalCents,
+          discountAppliedCents: newDiscountApplied,
+          updatedAt: new Date(),
+        })
+        .where(eq(invoices.id, existing.id))
+        .run();
+      await tx
+        .insert(invoiceLineItems)
+        .values(
+          newItems.map((l) => ({
+            invoiceId: existing.id,
+            chargeType: l.chargeType,
+            description: l.description,
+            amountCents: l.amountCents,
+            referenceId: l.referenceId,
+          }))
+        )
+        .run();
+    });
+
+    return {
+      ...(existing as unknown as Invoice),
+      totalCents: newTotalCents,
+      discountAppliedCents: newDiscountApplied,
+      lineItems: [...existingItems, ...newItems].map((l) => ({
+        chargeType: l.chargeType as ChargeType,
+        description: l.description,
+        amountCents: l.amountCents,
+        referenceId: l.referenceId,
+      })),
+    };
+  }
+
   let items = rows.map((r) => ({
     chargeType: r.chargeType as ChargeType,
     description: r.description,
     amountCents: r.amountCents,
+    referenceId: r.referenceId,
   }));
 
   // 无会员费记录时，从当月生效订阅补入
@@ -323,23 +388,36 @@ export async function generateMonthlyInvoice(
         chargeType: "MEMBERSHIP_FEE",
         description: `${sub.planType} 套餐月费`,
         amountCents: sub.monthlyFeeCents,
+        referenceId: `sub-monthly-${billingMonth}-${memberId}`,
       });
     }
   }
 
   const member = await db.select().from(members).where(eq(members.id, memberId)).get();
 
-  const lineItems: InvoiceLineItem[] = aggregateLineItems(items);
-
-  // 灵活区月封顶（≤ 月费 120%）—— 聚合后仅对汇总行截断
-  const flexLine = lineItems.find((l) => l.chargeType === "FLEX_USAGE");
-  if (flexLine) {
-    const membershipFee = lineItems.find((l) => l.chargeType === "MEMBERSHIP_FEE")?.amountCents ?? 0;
-    flexLine.amountCents = applyFlexMonthlyCap({
-      flexTotalCents: flexLine.amountCents,
+  // 灵活区月封顶（≤ 月费 120%）—— 按比例分摊到每条 FLEX_USAGE 明细
+  const flexRows = items.filter((i) => i.chargeType === "FLEX_USAGE");
+  if (flexRows.length > 0) {
+    const membershipFee = items.find((i) => i.chargeType === "MEMBERSHIP_FEE")?.amountCents ?? 0;
+    const flexTotal = flexRows.reduce((s, i) => s + i.amountCents, 0);
+    const cappedTotal = applyFlexMonthlyCap({
+      flexTotalCents: flexTotal,
       monthlyFeeCents: membershipFee,
     });
+    if (cappedTotal < flexTotal) {
+      let assigned = 0;
+      flexRows.forEach((row, idx) => {
+        if (idx === flexRows.length - 1) {
+          row.amountCents = cappedTotal - assigned; // 最后一条补舍入差
+        } else {
+          row.amountCents = Math.round((row.amountCents * cappedTotal) / flexTotal);
+          assigned += row.amountCents;
+        }
+      });
+    }
   }
+
+  const lineItems: InvoiceLineItem[] = items;
 
   if (lineItems.length === 0) {
     throw new Error("当月暂无费用，无需出账");
@@ -393,6 +471,7 @@ export async function generateMonthlyInvoice(
           chargeType: l.chargeType,
           description: l.description,
           amountCents: l.amountCents,
+          referenceId: l.referenceId,
         }))
       )
       .run();
@@ -400,6 +479,13 @@ export async function generateMonthlyInvoice(
   });
 
   return invoice;
+}
+
+/** 订阅/升级/降级后自动出账：冲刷事件 → 生成或追加当月账单 */
+export async function ensureMonthlyInvoice(memberId: string): Promise<InvoiceView> {
+  const now = new Date();
+  const month = monthKey(now);
+  return generateMonthlyInvoice(memberId, month);
 }
 
 // ---------- 支付（模拟） ----------
@@ -443,6 +529,7 @@ export async function listMyInvoices(memberId: string): Promise<InvoiceView[]> {
         chargeType: l.chargeType as ChargeType,
         description: l.description,
         amountCents: l.amountCents,
+        referenceId: l.referenceId,
       })),
   }));
 }
