@@ -198,6 +198,27 @@ describe("generateMonthlyInvoice — 自动出账", () => {
     expect(feeRows.some((l) => l.description.includes("升级差价"))).toBe(true);
   });
 
+  it("历史账单（明细行无 referenceId）升级后不重复追加基础费", async () => {
+    // 订阅 FLEX（写基础费 ¥499）→ 出账
+    await changeSubscription({ memberId, planId: "plan-flex" });
+    await dispatchOutboxEvents();
+    await billing.generateMonthlyInvoice(memberId, currentMonth());
+    // 模拟历史数据：清空 line items referenceId
+    await client.execute("UPDATE invoice_line_item SET referenceId = NULL");
+
+    // 升级 FIXED（差价 ¥400）
+    await changeSubscription({ memberId, planId: "plan-fixed" });
+    await dispatchOutboxEvents();
+
+    const inv = await billing.generateMonthlyInvoice(memberId, currentMonth());
+
+    // 只追加差价，不重复基础费
+    expect(inv.totalCents).toBe(89900);
+    const feeRows = inv.lineItems.filter((l) => l.chargeType === "MEMBERSHIP_FEE");
+    expect(feeRows.reduce((s, l) => s + l.amountCents, 0)).toBe(89900);
+    expect(feeRows.some((l) => l.description.includes("升级差价"))).toBe(true);
+  });
+
   it("FLEX_USAGE 超过月费 120% 时封顶并按比例分摊到每条明细", async () => {
     await seedUsage("MEMBERSHIP_FEE", "FLEX_DESK 套餐月费", 49900, "sub-2026-08-m1");
     // 两条灵活区费用，总 ¥1200 远超 cap ¥598.8

@@ -300,7 +300,7 @@ export async function generateMonthlyInvoice(
     )
     .all();
 
-  // 已有账单：追加未入账的消费明细（referenceId 不在已有明细行中）
+  // 已有账单：追加未入账的消费明细
   if (existing) {
     const existingItems = await db
       .select()
@@ -308,8 +308,24 @@ export async function generateMonthlyInvoice(
       .where(eq(invoiceLineItems.invoiceId, existing.id))
       .all();
     const existingRefIds = new Set(existingItems.map((l) => l.referenceId).filter(Boolean));
-    const pending = rows.filter((r) => !existingRefIds.has(r.referenceId));
-    if (pending.length === 0) return existing as unknown as Invoice;
+    // 历史数据兜底：referenceId 为 null 的旧明细行无法精确匹配，
+    // 只追加账单生成后新发生的消费明细（occurredAt 晚于账单创建时间），避免重复入账
+    const invoiceCreatedAtMs = existing.createdAt?.getTime() ?? 0;
+    const pending = rows.filter((r) => {
+      if (existingRefIds.has(r.referenceId)) return false;
+      return (r.occurredAt?.getTime() ?? 0) > invoiceCreatedAtMs;
+    });
+    if (pending.length === 0) {
+      return {
+        ...(existing as unknown as Invoice),
+        lineItems: existingItems.map((l) => ({
+          chargeType: l.chargeType as ChargeType,
+          description: l.description,
+          amountCents: l.amountCents,
+          referenceId: l.referenceId,
+        })),
+      };
+    }
 
     const newItems = pending.map((r) => ({
       chargeType: r.chargeType as ChargeType,
