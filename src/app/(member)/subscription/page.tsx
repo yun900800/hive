@@ -5,8 +5,7 @@ import {
   getActiveSubscription,
 } from "@/modules/membership/application/membership-app";
 import { formatYuan } from "@/lib/format";
-import { subscribePlanAction } from "@/modules/membership/interface/actions/subscribe";
-import { SubscribeForm } from "./subscribe-form";
+import { SubscribeForm, type PlanVariant } from "./subscribe-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default async function SubscriptionPage() {
@@ -30,19 +29,29 @@ export default async function SubscriptionPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {plans.map((p) => (
-          <Card key={p.id}>
-            <CardHeader>
-              <CardTitle>{p.name}</CardTitle>
-              <p className="text-3xl font-bold">{formatYuan(p.monthlyFeeCents)}</p>
-              <p className="text-xs text-muted-foreground">/月</p>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">{p.description}</p>
-              <SubscribeForm planId={p.id} disabled={!!activeSub} />
-            </CardContent>
-          </Card>
-        ))}
+        {plans.map((p) => {
+          const isCurrent = p.id === activeSub?.planId;
+          const variant: PlanVariant = !activeSub
+            ? "SUBSCRIBE"
+            : isCurrent
+              ? "CURRENT"
+              : p.monthlyFeeCents > activeSub.monthlyFeeCents
+                ? "UPGRADE"
+                : "DOWNGRADE";
+          return (
+            <Card key={p.id}>
+              <CardHeader>
+                <CardTitle>{p.name}</CardTitle>
+                <p className="text-3xl font-bold">{formatYuan(p.monthlyFeeCents)}</p>
+                <p className="text-xs text-muted-foreground">/月</p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">{p.description}</p>
+                <SubscribeForm planId={p.id} disabled={isCurrent} variant={variant} />
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
