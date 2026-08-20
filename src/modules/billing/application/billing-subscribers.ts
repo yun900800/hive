@@ -7,6 +7,7 @@ import { registerEventHandler } from "@/shared/events";
 import {
   recordDeskUsage,
   recordRoomUsage,
+  recordRoomOvertime,
   recordFlexUsage,
   recordMembershipFee,
   recordBaseMembershipFee,
@@ -20,7 +21,8 @@ export function registerBillingSubscribers(): void {
     await recordDeskUsage(p);
   });
 
-  registerEventHandler("booking.room-booking-completed", async (payload) => {
+  // 会议室开始使用 → 按预定时长写入 ROOM_USAGE（资源已占用即计费）
+  registerEventHandler("booking.room-booking-started", async (payload) => {
     const p = payload as {
       roomBookingId: string;
       memberId: string;
@@ -28,9 +30,19 @@ export function registerBillingSubscribers(): void {
       bookedStartTime: string;
       bookedEndTime: string;
       actualStartTime: string;
-      actualEndTime: string;
     };
     await recordRoomUsage(p);
+  });
+
+  // 会议室完成使用 → 只补超时费（ROOM_USAGE 已在开始时入账）
+  registerEventHandler("booking.room-booking-completed", async (payload) => {
+    const p = payload as {
+      roomBookingId: string;
+      memberId: string;
+      bookedEndTime: string;
+      actualEndTime: string;
+    };
+    await recordRoomOvertime(p);
   });
 
   registerEventHandler("booking.flex-session-ended", async (payload) => {

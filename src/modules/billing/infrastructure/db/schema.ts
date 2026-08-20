@@ -78,6 +78,7 @@ export const invoiceLineItems = sqliteTable(
     description: text("description").notNull(),
     amountCents: integer("amountCents").notNull(),
     referenceId: text("referenceId"), // 关联 usage_record.referenceId，用于追加未入账消费明细
+    occurredAt: integer("occurredAt", { mode: "timestamp_ms" }), // 消费发生时间（从 usage_record 继承）
   },
   (table) => [index("invoice_line_invoice_idx").on(table.invoiceId)]
 );

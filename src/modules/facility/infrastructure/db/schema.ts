@@ -2,12 +2,14 @@ import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 import {
   DESK_TYPES,
   DESK_STATUSES,
+  ROOM_TYPES,
   ROOM_STATUSES,
   FLEX_ZONE_STATUSES,
   GATE_TYPES,
   GATE_STATUSES,
   type DeskType,
   type DeskStatus,
+  type RoomType,
   type RoomStatus,
   type FlexZoneStatus,
   type GateType,
@@ -51,6 +53,10 @@ export const meetingRooms = sqliteTable(
     name: text("name").notNull(),
     capacity: integer("capacity").notNull(),
     equipments: text("equipments"), // JSON 字符串数组
+    type: text("type", { enum: ROOM_TYPES })
+      .$type<RoomType>()
+      .default("MEETING_ROOM")
+      .notNull(),
     status: text("status", { enum: ROOM_STATUSES })
       .$type<RoomStatus>()
       .default("AVAILABLE")

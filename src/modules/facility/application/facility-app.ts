@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { desks, meetingRooms, flexZones, gates } from "@/lib/db/schema";
 import { buildDeskCode, parseDeskCode } from "../domain/desk-code";
-import type { DeskStatus, RoomStatus, DeskType } from "../domain/types";
+import type { DeskStatus, RoomStatus, RoomType, DeskType } from "../domain/types";
 
 /**
  * FacilityApplicationService — 空间资源（工位/会议室/灵活区/闸机）管理用例。
@@ -81,6 +81,7 @@ export type CreateMeetingRoomInput = {
   capacity: number;
   equipments: string[];
   hourlyRateCents: number;
+  type?: RoomType;
 };
 
 export async function createMeetingRoom(input: CreateMeetingRoomInput) {
@@ -91,6 +92,7 @@ export async function createMeetingRoom(input: CreateMeetingRoomInput) {
       capacity: input.capacity,
       equipments: JSON.stringify(input.equipments),
       hourlyRateCents: input.hourlyRateCents,
+      type: input.type ?? "MEETING_ROOM",
       status: "AVAILABLE",
     })
     .returning()
@@ -102,6 +104,7 @@ export type UpdateMeetingRoomInput = {
   capacity?: number;
   equipments?: string[];
   hourlyRateCents?: number;
+  type?: RoomType;
   status?: RoomStatus;
 };
 

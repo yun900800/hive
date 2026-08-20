@@ -89,6 +89,7 @@ export default async function BillingPage() {
                   <TableRow>
                     <TableHead>类型</TableHead>
                     <TableHead>说明</TableHead>
+                    <TableHead>时间</TableHead>
                     <TableHead className="text-right">金额</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -99,6 +100,9 @@ export default async function BillingPage() {
                         <Badge variant="outline">{line.chargeType}</Badge>
                       </TableCell>
                       <TableCell>{line.description}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {line.occurredAt ? formatDateTime(line.occurredAt) : "—"}
+                      </TableCell>
                       <TableCell className="text-right">{formatYuan(line.amountCents)}</TableCell>
                     </TableRow>
                   ))}

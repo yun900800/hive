@@ -16,6 +16,7 @@ import {
   PLAN_SEEDS,
   DESK_SEEDS,
   MEETING_ROOM_SEEDS,
+  PRIVATE_OFFICE_SEEDS,
   FLEX_ZONE_SEEDS,
   GATE_SEEDS,
   ADMIN_SEED,
@@ -84,11 +85,28 @@ async function main() {
         capacity: r.capacity,
         equipments: JSON.stringify(r.equipments),
         hourlyRateCents: Math.round(r.hourlyRateYuan * 100),
+        type: "MEETING_ROOM",
         status: "AVAILABLE",
       })
       .run();
   }
   console.log(`✅ 会议室 ${MEETING_ROOM_SEEDS.length} 间`);
+
+  // 3.5 独立办公室（复用 meeting_room 表，type=PRIVATE_OFFICE）
+  for (const o of PRIVATE_OFFICE_SEEDS) {
+    await db
+      .insert(meetingRooms)
+      .values({
+        name: o.name,
+        capacity: o.capacity,
+        equipments: JSON.stringify(o.equipments),
+        hourlyRateCents: Math.round(o.hourlyRateYuan * 100),
+        type: "PRIVATE_OFFICE",
+        status: "AVAILABLE",
+      })
+      .run();
+  }
+  console.log(`✅ 独立办公室 ${PRIVATE_OFFICE_SEEDS.length} 间`);
 
   // 4. 灵活区域
   for (const z of FLEX_ZONE_SEEDS) {

@@ -69,6 +69,16 @@ export const MEETING_ROOM_SEEDS: Array<{
   { name: "黄山厅", capacity: 20, equipments: ["投影仪", "电视", "白板", "音视频"], hourlyRateYuan: 100 },
 ];
 
+/** 示例独立办公室（复用 meeting_room 表，type=PRIVATE_OFFICE，按小时租用） */
+export const PRIVATE_OFFICE_SEEDS: Array<{
+  name: string;
+  capacity: number;
+  equipments: string[];
+  hourlyRateYuan: number;
+}> = [
+  { name: "蓝鲸办公室", capacity: 6, equipments: ["投影仪", "白板", "电视"], hourlyRateYuan: 50 },
+];
+
 /** 示例灵活区域 */
 export const FLEX_ZONE_SEEDS: Array<{
   name: string;

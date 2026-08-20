@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS invoice_line_item (
   chargeType text NOT NULL,
   description text NOT NULL,
   amountCents integer NOT NULL,
-  referenceId text
+  referenceId text,
+  occurredAt integer
 );
 CREATE TABLE IF NOT EXISTS notification (
   id text PRIMARY KEY,

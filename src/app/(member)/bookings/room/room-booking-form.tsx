@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useActionState } from "react";
+import { useRouter } from "next/navigation";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,11 +27,23 @@ export function RoomBookingForm({
   }>;
 }) {
   const [state, action, pending] = useActionState(createRoomBookingAction, initialState);
+  const router = useRouter();
+  const submittedRef = useRef(false);
+
+  // 预订成功后跳转到我的预定页
+  useEffect(() => {
+    if (!submittedRef.current) return;
+    if (!state.error) {
+      router.push("/bookings");
+    }
+    submittedRef.current = false;
+  }, [state, router]);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     // React 19 表单 action 会在合成 onSubmit 之前就读取 FormData，
     // 因此在 onSubmit 里改 input.value 不生效；这里改为手动构造并转换后直接提交。
     e.preventDefault();
+    submittedRef.current = true;
     const form = e.currentTarget;
     const fd = new FormData(form);
     const start = fd.get("start") as string;

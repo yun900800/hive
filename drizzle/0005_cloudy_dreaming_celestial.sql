@@ -1,0 +1,1 @@
+ALTER TABLE `meeting_room` ADD `type` text DEFAULT 'MEETING_ROOM' NOT NULL;

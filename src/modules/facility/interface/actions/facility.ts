@@ -96,6 +96,7 @@ const roomSchema = z.object({
   name: z.string().trim().min(1).max(50),
   capacity: z.coerce.number().int().min(1).max(500),
   hourlyRateYuan: z.coerce.number().positive(),
+  type: z.enum(["MEETING_ROOM", "PRIVATE_OFFICE"]).default("MEETING_ROOM"),
 });
 
 export async function createMeetingRoomAction(
@@ -109,6 +110,7 @@ export async function createMeetingRoomAction(
     name: formData.get("name"),
     capacity: formData.get("capacity"),
     hourlyRateYuan: formData.get("hourlyRate"),
+    type: formData.get("type") ?? "MEETING_ROOM",
   });
   if (!parsed.success) return { error: "会议室信息不合法" };
 
@@ -118,6 +120,7 @@ export async function createMeetingRoomAction(
       capacity: parsed.data.capacity,
       hourlyRateCents: Math.round(parsed.data.hourlyRateYuan * 100),
       equipments: ["投影", "白板"],
+      type: parsed.data.type,
     });
   } catch (e) {
     return { error: e instanceof Error ? e.message : "创建失败" };
@@ -138,6 +141,7 @@ export async function updateMeetingRoomAction(
     name: formData.get("name"),
     capacity: formData.get("capacity"),
     hourlyRateYuan: formData.get("hourlyRate"),
+    type: formData.get("type") ?? "MEETING_ROOM",
   });
   if (!id || !parsed.success) return { error: "会议室信息不合法" };
 
@@ -146,6 +150,7 @@ export async function updateMeetingRoomAction(
       name: parsed.data.name,
       capacity: parsed.data.capacity,
       hourlyRateCents: Math.round(parsed.data.hourlyRateYuan * 100),
+      type: parsed.data.type,
     });
   } catch (e) {
     return { error: e instanceof Error ? e.message : "更新失败" };

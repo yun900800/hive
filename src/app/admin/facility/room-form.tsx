@@ -5,6 +5,13 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   createMeetingRoomAction,
   type ActionState,
 } from "@/modules/facility/interface/actions/facility";
@@ -28,8 +35,20 @@ export function RoomForm() {
         <Label htmlFor="hourlyRate">时租（元）</Label>
         <Input id="hourlyRate" name="hourlyRate" type="number" min={0} step="0.01" placeholder="60" required className="w-28" />
       </div>
+      <div className="space-y-1">
+        <Label htmlFor="type">类型</Label>
+        <Select name="type" defaultValue="MEETING_ROOM">
+          <SelectTrigger id="type" className="w-36">
+            <SelectValue placeholder="选择类型" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="MEETING_ROOM">会议室</SelectItem>
+            <SelectItem value="PRIVATE_OFFICE">独立办公室</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       <Button type="submit" disabled={pending}>
-        {pending ? "添加中…" : "添加会议室"}
+        {pending ? "添加中…" : "添加空间"}
       </Button>
       {state.error && <p className="w-full text-sm text-destructive">{state.error}</p>}
     </form>

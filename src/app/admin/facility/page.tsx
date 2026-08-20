@@ -25,6 +25,15 @@ function deskTypeLabel(type: string): string {
   return deskTypeLabels[type] ?? type;
 }
 
+const roomTypeLabels: Record<string, string> = {
+  MEETING_ROOM: "会议室",
+  PRIVATE_OFFICE: "独立办公室",
+};
+
+function roomTypeLabel(type: string): string {
+  return roomTypeLabels[type] ?? type;
+}
+
 export default async function FacilityPage() {
   const session = await auth();
   if (session?.user?.role !== "ADMIN") redirect("/dashboard");
@@ -101,6 +110,7 @@ export default async function FacilityPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>名称</TableHead>
+                  <TableHead>类型</TableHead>
                   <TableHead>容量</TableHead>
                   <TableHead>设备</TableHead>
                   <TableHead>时租</TableHead>
@@ -112,6 +122,11 @@ export default async function FacilityPage() {
                 {rooms.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell>{r.name}</TableCell>
+                    <TableCell>
+                      <Badge variant={r.type === "PRIVATE_OFFICE" ? "default" : "secondary"}>
+                        {roomTypeLabel(r.type)}
+                      </Badge>
+                    </TableCell>
                     <TableCell>{r.capacity} 人</TableCell>
                     <TableCell>{r.equipments.join("、") || "—"}</TableCell>
                     <TableCell>{formatYuan(r.hourlyRateCents)}/时</TableCell>
@@ -127,7 +142,7 @@ export default async function FacilityPage() {
                 ))}
                 {rooms.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                       暂无会议室，请先添加
                     </TableCell>
                   </TableRow>

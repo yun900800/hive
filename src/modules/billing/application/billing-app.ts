@@ -95,7 +95,7 @@ export async function recordDeskUsage(params: {
   });
 }
 
-/** 会议室完成 → ROOM_USAGE + OVER_TIME_PENALTY */
+/** 会议室开始使用 → ROOM_USAGE（按预定时长计费，资源已锁定不退差额） */
 export async function recordRoomUsage(params: {
   roomBookingId: string;
   memberId: string;
@@ -103,14 +103,12 @@ export async function recordRoomUsage(params: {
   bookedStartTime: string;
   bookedEndTime: string;
   actualStartTime: string;
-  actualEndTime: string;
 }): Promise<void> {
   const room = await db.select().from(meetingRooms).where(eq(meetingRooms.id, params.roomId)).get();
   const hourlyRateCents = room?.hourlyRateCents ?? 3000;
 
   const bookedStart = new Date(params.bookedStartTime);
   const bookedEnd = new Date(params.bookedEndTime);
-  const actualEnd = new Date(params.actualEndTime);
 
   // ROOM_USAGE —— 按预订时长计费
   const roomAmount = calculateRoomUsage({
@@ -125,10 +123,20 @@ export async function recordRoomUsage(params: {
     durationMs: bookedEnd.getTime() - bookedStart.getTime(),
     unitRateCents: hourlyRateCents,
     amountCents: roomAmount,
-    occurredAt: actualEnd,
+    occurredAt: new Date(params.actualStartTime),
   });
+}
 
-  // OVER_TIME_PENALTY —— 超时（扣 GracePeriod 15min）
+/** 会议室完成使用 → OVER_TIME_PENALTY（超时，扣 GracePeriod 15min） */
+export async function recordRoomOvertime(params: {
+  roomBookingId: string;
+  memberId: string;
+  bookedEndTime: string;
+  actualEndTime: string;
+}): Promise<void> {
+  const bookedEnd = new Date(params.bookedEndTime);
+  const actualEnd = new Date(params.actualEndTime);
+
   const overtimeAmount = calculateRoomOvertime({ bookedEndTime: bookedEnd, actualEndTime: actualEnd });
   if (overtimeAmount > 0) {
     await insertUsage({
@@ -335,6 +343,7 @@ export async function generateMonthlyInvoice(
           description: l.description,
           amountCents: l.amountCents,
           referenceId: l.referenceId,
+          occurredAt: l.occurredAt,
         })),
       };
     } else {
@@ -343,6 +352,7 @@ export async function generateMonthlyInvoice(
         description: r.description,
         amountCents: r.amountCents,
         referenceId: r.referenceId,
+        occurredAt: r.occurredAt,
       }));
 
       // 按原折扣率更新总额：totalBefore = totalCents + discountAppliedCents（精确反推）
@@ -384,6 +394,7 @@ export async function generateMonthlyInvoice(
               description: l.description,
               amountCents: l.amountCents,
               referenceId: l.referenceId,
+              occurredAt: l.occurredAt,
             }))
           )
           .run();
@@ -399,6 +410,7 @@ export async function generateMonthlyInvoice(
           description: l.description,
           amountCents: l.amountCents,
           referenceId: l.referenceId,
+          occurredAt: l.occurredAt,
         })),
       };
     }
@@ -411,6 +423,7 @@ export async function generateMonthlyInvoice(
         description: r.description,
         amountCents: r.amountCents,
         referenceId: r.referenceId,
+        occurredAt: r.occurredAt,
       }));
 
     // 无会员费记录时，从当月生效订阅补入（未入账才补）
@@ -435,6 +448,7 @@ export async function generateMonthlyInvoice(
             description: `${sub.planType} 套餐月费`,
             amountCents: sub.monthlyFeeCents,
             referenceId: syntheticRef,
+            occurredAt: start,
           });
         }
       }
@@ -519,6 +533,7 @@ export async function generateMonthlyInvoice(
             description: l.description,
             amountCents: l.amountCents,
             referenceId: l.referenceId,
+            occurredAt: l.occurredAt,
           }))
         )
         .run();
@@ -547,12 +562,6 @@ export async function ensureMonthlyInvoice(memberId: string): Promise<InvoiceVie
  */
 export async function ensureMonthlyInvoiceIfNeeded(memberId: string): Promise<void> {
   const month = monthKey(new Date());
-  const existing = await db
-    .select({ id: invoices.id })
-    .from(invoices)
-    .where(and(eq(invoices.memberId, memberId), eq(invoices.billingMonth, month)))
-    .get();
-  if (existing) return;
 
   const sub = await db
     .select({ id: subscriptions.id })
@@ -561,6 +570,10 @@ export async function ensureMonthlyInvoiceIfNeeded(memberId: string): Promise<vo
     .get();
   if (!sub) return;
 
+  // 始终调用 generateMonthlyInvoice —— 它内部幂等：
+  // - 已有账单 → 追加未入账的消费明细
+  // - 无账单 → 生成新账单
+  // - 无新费用 → 静默返回
   try {
     await generateMonthlyInvoice(memberId, month);
   } catch {
@@ -610,6 +623,7 @@ export async function listMyInvoices(memberId: string): Promise<InvoiceView[]> {
         description: l.description,
         amountCents: l.amountCents,
         referenceId: l.referenceId,
+        occurredAt: l.occurredAt,
       })),
   }));
 }

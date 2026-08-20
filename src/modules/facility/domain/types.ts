@@ -25,6 +25,10 @@ export type DeskStatus = (typeof DESK_STATUSES)[number];
 export const ROOM_STATUSES = ["AVAILABLE", "IN_USE", "UNDER_MAINTENANCE"] as const;
 export type RoomStatus = (typeof ROOM_STATUSES)[number];
 
+/** RoomType — 空间类型：会议室 / 独立办公室（复用同一资源表与预订/计费流程） */
+export const ROOM_TYPES = ["MEETING_ROOM", "PRIVATE_OFFICE"] as const;
+export type RoomType = (typeof ROOM_TYPES)[number];
+
 /** FlexZoneStatus — 灵活区域状态 */
 export const FLEX_ZONE_STATUSES = ["OPEN", "CLOSED", "UNDER_MAINTENANCE"] as const;
 export type FlexZoneStatus = (typeof FLEX_ZONE_STATUSES)[number];

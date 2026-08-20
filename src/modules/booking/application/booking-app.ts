@@ -362,11 +362,29 @@ export async function startRoomBooking(
   if (!result.ok) throw new Error(result.error);
   const next = result.value;
 
-  await db
-    .update(roomBookings)
-    .set({ status: next.status, startedAt: next.startedAt, updatedAt: next.updatedAt })
-    .where(eq(roomBookings.id, bookingId))
-    .run();
+  // 开始使用即占用资源 → 发布事件，Billing 按预定时长写入 ROOM_USAGE 消费明细
+  const event = createEvent({
+    eventType: "booking.room-booking-started",
+    aggregateId: next.id,
+    aggregateType: "MeetingRoomBooking",
+    payload: {
+      roomBookingId: next.id,
+      memberId: next.memberId,
+      roomId: next.roomId,
+      bookedStartTime: next.startTime.toISOString(),
+      bookedEndTime: next.endTime.toISOString(),
+      actualStartTime: (next.startedAt ?? next.startTime).toISOString(),
+    },
+  });
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(roomBookings)
+      .set({ status: next.status, startedAt: next.startedAt, updatedAt: next.updatedAt })
+      .where(eq(roomBookings.id, bookingId))
+      .run();
+    await appendOutboxEvents(tx, [event]);
+  });
   return next;
 }
 

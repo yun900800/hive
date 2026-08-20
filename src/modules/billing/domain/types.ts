@@ -29,6 +29,7 @@ export type InvoiceLineItem = {
   description: string;
   amountCents: number;
   referenceId?: string | null; // 关联 usage_record.referenceId，用于追加未入账消费明细
+  occurredAt?: Date | null; // 消费发生时间（从 usage_record 继承）
 };
 
 /** Invoice — 账单（聚合根，一个会员每月一张） */
