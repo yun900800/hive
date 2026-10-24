@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import { CreditCard, Receipt, Wallet } from "lucide-react";
+
 import { auth } from "@/auth";
 import {
   listMyInvoices,
@@ -7,18 +9,28 @@ import {
   ensureMonthlyInvoiceIfNeeded,
 } from "@/modules/billing/application/billing-app";
 import { formatYuan, formatDateTime } from "@/lib/format";
+import { labelOf } from "@/lib/labels";
 import { BillingActions } from "./billing-actions";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PageHeader } from "@/components/patterns/page-header";
+import { StatCard } from "@/components/patterns/stat-card";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { EmptyState } from "@/components/patterns/empty-state";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 export default async function BillingPage() {
   const session = await auth();
   if (!session?.user?.memberId) redirect("/login");
 
   const memberId = session.user.memberId;
-  // 惰性出账兜底：无 Cron 环境下，访问账单页时自动生成当月账单（幂等）
   await ensureMonthlyInvoiceIfNeeded(memberId);
+
   const [invoices, outstanding, paidTotal] = await Promise.all([
     listMyInvoices(memberId),
     getOutstandingBalance(memberId),
@@ -26,106 +38,109 @@ export default async function BillingPage() {
   ]);
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">账单与支付</h1>
-          <p className="text-sm text-muted-foreground">
-            月度出账，包含会员费与按次使用费。支付为模拟流程。
-          </p>
-        </div>
-        <BillingActions action="generate" disabled={false} />
-      </div>
+    <div className="space-y-10">
+      <PageHeader
+        title="账单与支付中心"
+        description="查看月度出账、消费明细与模拟支付流程。"
+        actions={<BillingActions action="generate" disabled={false} />}
+      />
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">待支付总额</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold">{formatYuan(outstanding)}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">已支付总额</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold text-emerald-600">{formatYuan(paidTotal)}</CardContent>
-        </Card>
-      </div>
+      <section aria-label="账单统计" className="grid gap-4 sm:grid-cols-2">
+        <StatCard
+          label="待支付总额"
+          value={formatYuan(outstanding)}
+          icon={CreditCard}
+          tone={outstanding > 0 ? "warning" : "success"}
+          hint={outstanding > 0 ? "请尽快完成待付账单" : "所有账单已结清"}
+        />
+        <StatCard
+          label="历史已支付总额"
+          value={formatYuan(paidTotal)}
+          icon={Wallet}
+          tone="success"
+          hint="累计成功付款金额"
+        />
+      </section>
 
-      {invoices.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            暂无账单。点击右上角「生成本月账单」将当前使用的费用汇总成账。
-          </CardContent>
-        </Card>
-      ) : (
-        invoices.map((inv) => (
-          <Card key={inv.id}>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>{inv.billingMonth} 账单</CardTitle>
-                  <CardDescription>
-                    出账 {formatDateTime(inv.createdAt)} · 截止 {formatDateTime(inv.dueDate)}
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Badge variant={inv.status === "PAID" ? "default" : "secondary"}>
-                    {inv.status}
-                  </Badge>
-                  <span className="text-xl font-bold">{formatYuan(inv.totalCents)}</span>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-muted-foreground">消费明细</h3>
-                {inv.status !== "PAID" && (
-                  <BillingActions action="pay" invoiceId={inv.id} />
-                )}
-              </div>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>类型</TableHead>
-                    <TableHead>说明</TableHead>
-                    <TableHead>时间</TableHead>
-                    <TableHead className="text-right">金额</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {inv.lineItems.map((line, i) => (
-                    <TableRow key={i}>
-                      <TableCell>
-                        <Badge variant="outline">{line.chargeType}</Badge>
-                      </TableCell>
-                      <TableCell>{line.description}</TableCell>
-                      <TableCell className="text-muted-foreground text-sm">
-                        {line.occurredAt ? formatDateTime(line.occurredAt) : "—"}
-                      </TableCell>
-                      <TableCell className="text-right">{formatYuan(line.amountCents)}</TableCell>
-                    </TableRow>
-                  ))}
-                  {inv.discountAppliedCents > 0 && (
-                    <TableRow>
-                      <TableCell />
-                      <TableCell>会员折扣（{Math.round(inv.discountRate * 100)} 折）</TableCell>
-                      <TableCell className="text-right text-destructive">
-                        -{formatYuan(inv.discountAppliedCents)}
-                      </TableCell>
-                    </TableRow>
+      <section aria-labelledby="invoices-heading" className="space-y-4">
+        <h2 id="invoices-heading" className="text-base font-semibold">
+          账单历史
+        </h2>
+
+        {invoices.length === 0 ? (
+          <EmptyState
+            icon={Receipt}
+            title="暂无账单记录"
+            description="点击右上角「生成本月账单」将当月产生的工位、会议室与灵活区费用汇总出账。"
+          />
+        ) : (
+          <div className="space-y-4">
+            {invoices.map((inv) => {
+              const isPaid = inv.status === "PAID";
+              return (
+                <div
+                  key={inv.id}
+                  className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-xs ring-1 ring-foreground/[0.02]"
+                >
+                  <div className="flex flex-col gap-3 border-b border-border/70 bg-muted/30 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <h3 className="text-base font-semibold">
+                          {inv.billingMonth} 月度账单
+                        </h3>
+                        <StatusBadge kind="invoice" value={inv.status} />
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        出账时间：{formatDateTime(inv.createdAt)} · 缴费截止：{formatDateTime(inv.dueDate)}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-xl font-bold tabular-nums">
+                          {formatYuan(inv.totalCents)}
+                        </p>
+                      </div>
+                      {!isPaid && <BillingActions action="pay" invoiceId={inv.id} />}
+                    </div>
+                  </div>
+
+                  {inv.lineItems.length > 0 && (
+                    <div className="px-6 py-3">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>消费类型</TableHead>
+                            <TableHead>明细说明</TableHead>
+                            <TableHead className="text-right">金额</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {inv.lineItems.map((item, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell className="font-medium">
+                                <span className="inline-flex items-center rounded-md bg-brand-soft px-2 py-0.5 text-xs text-brand-ink">
+                                  {labelOf("charge", item.chargeType)}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {item.description}
+                              </TableCell>
+                              <TableCell className="text-right font-medium tabular-nums">
+                                {formatYuan(item.amountCents)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
                   )}
-                  <TableRow className="font-semibold">
-                    <TableCell />
-                    <TableCell>合计</TableCell>
-                    <TableCell className="text-right">{formatYuan(inv.totalCents)}</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        ))
-      )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
