@@ -1,86 +1,130 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import { listRecentAccessLogs } from "@/modules/access/application/access-app";
 import { count } from "drizzle-orm";
+import { ScanLine, ShieldAlert, ShieldCheck, Ticket } from "lucide-react";
+
+import { listRecentAccessLogs } from "@/modules/access/application/access-app";
 import { db } from "@/lib/db";
-import { gatePasses } from "@/lib/db/schema";
+import { gatePasses, members } from "@/lib/db/schema";
 import { formatDateTime } from "@/lib/format";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PageHeader } from "@/components/patterns/page-header";
+import { SectionCard } from "@/components/patterns/section-card";
+import { StatCard } from "@/components/patterns/stat-card";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { EmptyState } from "@/components/patterns/empty-state";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 export default async function AdminAccessPage() {
   const session = await auth();
   if (session?.user?.role !== "ADMIN") redirect("/dashboard");
 
-  const [logs, [passCount]] = await Promise.all([
+  const [logs, [passCount], membersList] = await Promise.all([
     listRecentAccessLogs(200),
     db.select({ v: count() }).from(gatePasses),
+    db.select({ id: members.id, name: members.name }).from(members).all(),
   ]);
 
-  const granted = logs.filter((l) => l.result === "GRANTED").length;
+  const memberName = new Map(membersList.map((member) => [member.id, member.name]));
+  const granted = logs.filter((log) => log.result === "GRANTED").length;
+  const denied = logs.length - granted;
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">通行管理</h1>
-        <p className="text-sm text-muted-foreground">通行记录与通行证情况（模拟扫码）。</p>
-      </div>
+      <PageHeader
+        title="通行管理"
+        description="查看最近 200 条闸机通行记录与通行证发放情况。"
+      />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">通行证总数</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-bold">{passCount.v}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">通行记录</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-bold">{logs.length}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">放行次数</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-bold">{granted}</CardContent>
-        </Card>
-      </div>
+      <section aria-label="通行概览" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard
+          label="通行证总数"
+          value={passCount.v}
+          icon={Ticket}
+          tone="brand"
+          hint="历史累计发放"
+        />
+        <StatCard
+          label="最近记录"
+          value={logs.length}
+          icon={ScanLine}
+          hint="最近 200 条"
+        />
+        <StatCard
+          label="放行次数"
+          value={granted}
+          icon={ShieldCheck}
+          tone="success"
+          hint="验证通过并放行"
+        />
+        <StatCard
+          label="拒绝次数"
+          value={denied}
+          icon={ShieldAlert}
+          tone={denied > 0 ? "danger" : "default"}
+          hint="过期、撤销或无效编码"
+        />
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>最近通行记录</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>时间</TableHead>
-                <TableHead>会员</TableHead>
-                <TableHead>闸机</TableHead>
-                <TableHead>方向</TableHead>
-                <TableHead>结果</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {logs.length === 0 ? (
+      <SectionCard
+        title="最近通行记录"
+        description="按通行时间倒序排列。"
+        bodyClassName="p-0"
+      >
+        {logs.length === 0 ? (
+          <EmptyState
+            icon={ScanLine}
+            title="暂无通行记录"
+            description="会员在闸机扫码后，记录会实时出现在这里。"
+            className="border-0 bg-transparent"
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
-                    暂无通行记录
-                  </TableCell>
+                  <TableHead>通行时间</TableHead>
+                  <TableHead>会员</TableHead>
+                  <TableHead className="hidden sm:table-cell">闸机</TableHead>
+                  <TableHead className="hidden sm:table-cell">方向</TableHead>
+                  <TableHead>结果</TableHead>
                 </TableRow>
-              ) : (
-                logs.map((l) => (
-                  <TableRow key={l.id}>
-                    <TableCell>{formatDateTime(l.accessTime)}</TableCell>
-                    <TableCell>{l.memberId ? l.memberId.slice(0, 8) : "—"}</TableCell>
-                    <TableCell>{l.gateName}</TableCell>
-                    <TableCell>{l.direction}</TableCell>
+              </TableHeader>
+              <TableBody>
+                {logs.map((log) => (
+                  <TableRow key={log.id}>
+                    <TableCell className="tabular-nums text-muted-foreground">
+                      {formatDateTime(log.accessTime)}
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {log.memberId
+                        ? (memberName.get(log.memberId) ?? "未知会员")
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      {log.gateName}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs">
+                        {log.direction === "ENTRY" ? "入场" : "离场"}
+                      </span>
+                    </TableCell>
                     <TableCell>
-                      <Badge variant={l.result === "GRANTED" ? "default" : "destructive"}>{l.result}</Badge>
+                      <StatusBadge kind="accessResult" value={log.result} />
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </SectionCard>
     </div>
   );
 }

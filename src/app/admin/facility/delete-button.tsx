@@ -1,6 +1,8 @@
 "use client";
 
 import { useActionState } from "react";
+import { Trash2 } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import {
   deleteDeskAction,
@@ -25,20 +27,29 @@ export function DeleteButton({
   );
 
   return (
-    <form action={action}>
+    <form action={action} className="inline-flex items-center justify-end">
       <input type="hidden" name="id" value={id} />
       <Button
         type="submit"
         variant="ghost"
-        size="sm"
-        className="text-destructive hover:text-destructive"
+        size="icon-sm"
+        aria-label={`删除 ${label}`}
+        title={`删除 ${label}`}
+        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
         disabled={pending}
-        onClick={(e) => {
-          if (!confirm(`确定删除「${label}」吗？`)) e.preventDefault();
+        onClick={(event) => {
+          if (!confirm(`确定删除「${label}」吗？此操作不可撤销。`)) {
+            event.preventDefault();
+          }
         }}
       >
-        {pending ? "删除中…" : "删除"}
+        <Trash2 className="size-4" aria-hidden />
       </Button>
+      {state.error && (
+        <span role="alert" className="sr-only">
+          {state.error}
+        </span>
+      )}
     </form>
   );
 }

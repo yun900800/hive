@@ -1,6 +1,13 @@
 import { redirect } from "next/navigation";
+import { Building2, DoorOpen, ScanLine, Sparkles } from "lucide-react";
+
 import { auth } from "@/auth";
-import { listDesks, listMeetingRooms, listFlexZones, listGates } from "@/modules/facility/application/facility-app";
+import {
+  listDesks,
+  listMeetingRooms,
+  listFlexZones,
+  listGates,
+} from "@/modules/facility/application/facility-app";
 import { formatYuan } from "@/lib/format";
 import { DeskForm } from "./desk-form";
 import { RoomForm } from "./room-form";
@@ -11,27 +18,25 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PageHeader } from "@/components/patterns/page-header";
+import { SectionCard } from "@/components/patterns/section-card";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { EmptyState } from "@/components/patterns/empty-state";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
-const deskTypeLabels: Record<string, string> = {
-  STANDARD: "标准位",
-  WINDOW_SIDE: "靠窗",
-  QUIET_ZONE: "静区",
-  STANDING: "站立位",
-};
-
-function deskTypeLabel(type: string): string {
-  return deskTypeLabels[type] ?? type;
-}
-
-const roomTypeLabels: Record<string, string> = {
-  MEETING_ROOM: "会议室",
-  PRIVATE_OFFICE: "独立办公室",
-};
-
-function roomTypeLabel(type: string): string {
-  return roomTypeLabels[type] ?? type;
+function TabCount({ value }: { value: number }) {
+  return (
+    <span className="ml-1.5 rounded-full bg-background/80 px-1.5 text-[11px] tabular-nums text-muted-foreground ring-1 ring-border">
+      {value}
+    </span>
+  );
 }
 
 export default async function FacilityPage() {
@@ -47,155 +52,248 @@ export default async function FacilityPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">空间资源管理</h1>
-        <p className="text-sm text-muted-foreground">维护工位、会议室等空间设施。</p>
-      </div>
+      <PageHeader
+        title="空间资源管理"
+        description="维护工位、会议室、灵活办公区与闸机设备。新增资源会立即出现在会员端预订页。"
+      />
 
-      <Tabs defaultValue="desks">
-        <TabsList>
-          <TabsTrigger value="desks">工位（{desks.length}）</TabsTrigger>
-          <TabsTrigger value="rooms">会议室（{rooms.length}）</TabsTrigger>
-          <TabsTrigger value="zones">灵活区（{zones.length}）</TabsTrigger>
-          <TabsTrigger value="gates">闸机（{gates.length}）</TabsTrigger>
+      <Tabs defaultValue="desks" className="gap-6">
+        <TabsList
+          className="grid w-full grid-cols-2 gap-1 bg-muted/60 p-1 sm:inline-flex sm:w-fit"
+          style={{ height: "auto" }}
+        >
+          <TabsTrigger value="desks" className="px-3 py-1.5">
+            工位 <TabCount value={desks.length} />
+          </TabsTrigger>
+          <TabsTrigger value="rooms" className="px-3 py-1.5">
+            会议室 <TabCount value={rooms.length} />
+          </TabsTrigger>
+          <TabsTrigger value="zones" className="px-3 py-1.5">
+            灵活区 <TabCount value={zones.length} />
+          </TabsTrigger>
+          <TabsTrigger value="gates" className="px-3 py-1.5">
+            闸机 <TabCount value={gates.length} />
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="desks" className="space-y-4">
+        {/* 工位 */}
+        <TabsContent value="desks" className="space-y-5">
           <DeskForm />
-          <div className="rounded-xl border bg-background">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>编号</TableHead>
-                  <TableHead>楼层</TableHead>
-                  <TableHead>分区</TableHead>
-                  <TableHead>类型</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead className="w-24 text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {desks.map((d) => (
-                  <TableRow key={d.id}>
-                    <TableCell className="font-mono">{d.code}</TableCell>
-                    <TableCell>{d.floor} 层</TableCell>
-                    <TableCell>{d.zone}</TableCell>
-                    <TableCell>{deskTypeLabel(d.type)}</TableCell>
-                    <TableCell>
-                      <Badge variant={d.status === "AVAILABLE" ? "secondary" : "outline"}>
-                        {d.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DeleteButton kind="desk" id={d.id} label={d.code} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {desks.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                      暂无工位，请先添加
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+
+          <SectionCard
+            title="工位列表"
+            description={`共 ${desks.length} 个工位，状态由预订与签到流程自动更新。`}
+            bodyClassName="p-0"
+          >
+            {desks.length === 0 ? (
+              <EmptyState
+                icon={Building2}
+                title="还没有工位"
+                description="使用上方表单添加第一个工位，会员即可开始预订。"
+                className="border-0 bg-transparent"
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>编号</TableHead>
+                      <TableHead className="hidden sm:table-cell">楼层</TableHead>
+                      <TableHead className="hidden sm:table-cell">分区</TableHead>
+                      <TableHead>类型</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead className="w-20 text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {desks.map((desk) => (
+                      <TableRow key={desk.id}>
+                        <TableCell className="font-mono text-xs font-medium">
+                          {desk.code}
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          {desk.floor} 层
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          {desk.zone} 区
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge kind="deskType" value={desk.type} />
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge kind="deskStatus" value={desk.status} />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DeleteButton
+                            kind="desk"
+                            id={desk.id}
+                            label={desk.code}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </SectionCard>
         </TabsContent>
 
-        <TabsContent value="rooms" className="space-y-4">
+        {/* 会议室 */}
+        <TabsContent value="rooms" className="space-y-5">
           <RoomForm />
-          <div className="rounded-xl border bg-background">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>名称</TableHead>
-                  <TableHead>类型</TableHead>
-                  <TableHead>容量</TableHead>
-                  <TableHead>设备</TableHead>
-                  <TableHead>时租</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead className="w-24 text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rooms.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell>{r.name}</TableCell>
-                    <TableCell>
-                      <Badge variant={r.type === "PRIVATE_OFFICE" ? "default" : "secondary"}>
-                        {roomTypeLabel(r.type)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{r.capacity} 人</TableCell>
-                    <TableCell>{r.equipments.join("、") || "—"}</TableCell>
-                    <TableCell>{formatYuan(r.hourlyRateCents)}/时</TableCell>
-                    <TableCell>
-                      <Badge variant={r.status === "AVAILABLE" ? "secondary" : "outline"}>
-                        {r.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DeleteButton kind="room" id={r.id} label={r.name} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {rooms.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                      暂无会议室，请先添加
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+
+          <SectionCard
+            title="会议室与独立办公室"
+            description={`共 ${rooms.length} 间，时租用于会议室计费。`}
+            bodyClassName="p-0"
+          >
+            {rooms.length === 0 ? (
+              <EmptyState
+                icon={DoorOpen}
+                title="还没有会议室"
+                description="添加会议室或独立办公室后，会员即可按小时预订。"
+                className="border-0 bg-transparent"
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>名称</TableHead>
+                      <TableHead className="hidden sm:table-cell">类型</TableHead>
+                      <TableHead className="hidden sm:table-cell">容量</TableHead>
+                      <TableHead className="hidden xl:table-cell">设备</TableHead>
+                      <TableHead>时租</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead className="w-20 text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rooms.map((room) => (
+                      <TableRow key={room.id}>
+                        <TableCell className="font-medium">
+                          {room.name}
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          <StatusBadge kind="roomType" value={room.type} />
+                        </TableCell>
+                        <TableCell className="hidden tabular-nums sm:table-cell">
+                          {room.capacity} 人
+                        </TableCell>
+                        <TableCell className="hidden max-w-52 truncate text-muted-foreground xl:table-cell">
+                          {room.equipments.join("、") || "—"}
+                        </TableCell>
+                        <TableCell className="tabular-nums">
+                          {formatYuan(room.hourlyRateCents)} / 时
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge kind="roomStatus" value={room.status} />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DeleteButton
+                            kind="room"
+                            id={room.id}
+                            label={room.name}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </SectionCard>
         </TabsContent>
 
+        {/* 灵活区 */}
         <TabsContent value="zones">
-          <div className="rounded-xl border bg-background">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>名称</TableHead>
-                  <TableHead>容量</TableHead>
-                  <TableHead>状态</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {zones.map((z) => (
-                  <TableRow key={z.id}>
-                    <TableCell>{z.name}</TableCell>
-                    <TableCell>{z.capacity} 人</TableCell>
-                    <TableCell>{z.status}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <SectionCard
+            title="灵活办公区"
+            description={`共 ${zones.length} 个区域，会员到场后可签到计时。`}
+            bodyClassName="p-0"
+          >
+            {zones.length === 0 ? (
+              <EmptyState
+                icon={Sparkles}
+                title="还没有灵活区"
+                description="灵活区需要在种子数据或后续版本中配置。"
+                className="border-0 bg-transparent"
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>名称</TableHead>
+                      <TableHead>容量</TableHead>
+                      <TableHead>状态</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {zones.map((zone) => (
+                      <TableRow key={zone.id}>
+                        <TableCell className="font-medium">
+                          {zone.name}
+                        </TableCell>
+                        <TableCell className="tabular-nums">
+                          {zone.capacity} 人
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge kind="zoneStatus" value={zone.status} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </SectionCard>
         </TabsContent>
 
+        {/* 闸机 */}
         <TabsContent value="gates">
-          <div className="rounded-xl border bg-background">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>名称</TableHead>
-                  <TableHead>位置</TableHead>
-                  <TableHead>状态</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {gates.map((g) => (
-                  <TableRow key={g.id}>
-                    <TableCell>{g.name}</TableCell>
-                    <TableCell>{g.floor} 层 · {g.zone}</TableCell>
-                    <TableCell>{g.status}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <SectionCard
+            title="闸机设备"
+            description={`共 ${gates.length} 台设备，用于通行记录与扫码核销。`}
+            bodyClassName="p-0"
+          >
+            {gates.length === 0 ? (
+              <EmptyState
+                icon={ScanLine}
+                title="还没有闸机"
+                description="闸机设备需要在种子数据或后续版本中配置。"
+                className="border-0 bg-transparent"
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>名称</TableHead>
+                      <TableHead>位置</TableHead>
+                      <TableHead>状态</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {gates.map((gate) => (
+                      <TableRow key={gate.id}>
+                        <TableCell className="font-medium">
+                          {gate.name}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {gate.floor} 层 · {gate.zone} 区
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge kind="gateStatus" value={gate.status} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </SectionCard>
         </TabsContent>
       </Tabs>
     </div>
