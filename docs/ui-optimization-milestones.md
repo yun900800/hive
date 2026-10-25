@@ -9,7 +9,7 @@
 
 | 里程碑 | 主题 | 任务数 | 已完成 | 状态 |
 |---|---|---:|---:|---|
-| P0 | 会员端遗留三页视觉统一 | 4 | 0 | ⬜ 未开始 |
+| P0 | 会员端遗留三页视觉统一 | 4 | 4 | ✅ 完成 |
 | P1 | 预订页外壳与资源名 | 4 | 0 | ⬜ 未开始 |
 | P2 | 登录/注册与内部链接 | 4 | 0 | ⬜ 未开始 |
 | P3 | 我的预订筛选 | 4 | 0 | ⬜ 未开始 |
@@ -17,7 +17,7 @@
 | P5 | 管理端会员搜索/筛选 | 4 | 0 | ⬜ 未开始 |
 | P6 | 管理端账单/通行筛选 + 分页 | 4 | 0 | ⬜ 未开始 |
 | P7 | 移动端、可访问性与清理 | 5 | 0 | ⬜ 未开始 |
-| **合计** |  | **33** | **0** |  |
+| **合计** |  | **33** | **4** | 🟨 进行中 |
 
 状态图例：⬜ 未开始 / 🟨 进行中 / ✅ 完成
 
@@ -30,16 +30,16 @@
 - [x] 管理端 6 页：经营总览、空间资源、会员、套餐、账单、通行、报表（`2c5098f`）
 - [x] 404、`error.tsx`、`global-error.tsx`
 
-## P0 — 会员端遗留三页视觉统一
+## P0 — 会员端遗留三页视觉统一 ✅
 
 **目标**：把 `/flex`、`/notifications`、`/profile` 拉齐到现有设计系统，消除旧 Card、原始英文枚举和原生控件。
 
 **任务**
 
-- [ ] `/flex`：改用 PageHeader + SectionCard；`FLEX_DESK` 等用 `labelOf("planType", ...)`；原生 `<select>` 换成 base-ui Select；无权限时用统一的提示卡/EmptyState
-- [ ] `/notifications`：改用 PageHeader + 列表卡；未读状态用品牌色点或统一 Badge；保留「全部已读」；补空状态
-- [ ] `/profile`：改用 PageHeader + SectionCard；`tier` / `planType` / `status` 中文化并用 StatusBadge；`<a>` 换成 `Link`
-- [ ] 三页做 1440px 与 390px 截图检查
+- [x] `/flex`：改用 PageHeader + SectionCard；`FLEX_DESK` 等用 `labelOf("planType", ...)`；原生 `<select>` 换成 base-ui Select；无权限时用统一的提示卡/EmptyState
+- [x] `/notifications`：改用 PageHeader + 列表卡；未读状态用品牌色点或统一 Badge；保留「全部已读」；补空状态
+- [x] `/profile`：改用 PageHeader + SectionCard；`tier` / `planType` / `status` 中文化并用 StatusBadge；`<a>` 换成 `Link`
+- [x] 三页做 1440px 与 390px 截图检查
 
 **涉及文件**
 
@@ -59,8 +59,8 @@
 
 **完成记录**
 
-- 日期：—
-- Commit：—
+- 日期：2026-10-25
+- Commit：999bf9c
 
 ## P1 — 预订页外壳与资源名
 
