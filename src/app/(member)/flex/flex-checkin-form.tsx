@@ -1,8 +1,16 @@
 "use client";
 
 import { useActionState } from "react";
+
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   startFlexSessionAction,
   type ActionState,
@@ -16,28 +24,59 @@ export function FlexCheckInForm({
 }: {
   zones: Array<{ id: string; name: string; capacity: number }>;
 }) {
-  const [state, action, pending] = useActionState(startFlexSessionAction, initialState);
+  const [state, action, pending] = useActionState(
+    startFlexSessionAction,
+    initialState
+  );
+
+  if (zones.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+        当前没有开放中的区域，请稍后再试。
+      </p>
+    );
+  }
+
+  const zoneItems = Object.fromEntries(
+    zones.map((zone) => [zone.id, `${zone.name}（容量 ${zone.capacity} 人）`])
+  );
 
   return (
     <form action={action} className="space-y-4">
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <Label htmlFor="zoneId">区域</Label>
-        <select
-          id="zoneId"
+        <Select
           name="zoneId"
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-          required
+          defaultValue={zones[0]?.id}
+          items={zoneItems}
+          disabled={pending}
         >
-          {zones.map((z) => (
-            <option key={z.id} value={z.id}>
-              {z.name}（容量 {z.capacity}）
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="zoneId" className="w-full">
+            <SelectValue placeholder="选择区域" />
+          </SelectTrigger>
+          <SelectContent>
+            {zones.map((zone) => (
+              <SelectItem key={zone.id} value={zone.id}>
+                {zone.name}（容量 {zone.capacity} 人）
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
-      {state.error && <p className="text-sm text-destructive">{state.error}</p>}
-      <Button type="submit" className="w-full" disabled={pending || zones.length === 0}>
-        {zones.length === 0 ? "暂无可开放区域" : pending ? "签到中…" : "签到入场"}
+
+      {state.error && (
+        <p role="alert" className="text-sm text-destructive">
+          {state.error}
+        </p>
+      )}
+
+      <Button
+        type="submit"
+        variant="brand"
+        className="w-full"
+        disabled={pending}
+      >
+        {pending ? "签到中…" : "签到入场"}
       </Button>
     </form>
   );

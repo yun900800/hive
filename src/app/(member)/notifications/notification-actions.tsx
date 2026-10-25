@@ -24,10 +24,19 @@ export function NotificationActions({
   );
 
   return (
-    <form action={formAction}>
+    <form action={formAction} className="shrink-0">
       {id && <input type="hidden" name="id" value={id} />}
-      {state.error && <p className="text-xs text-destructive">{state.error}</p>}
-      <Button type="submit" size="sm" variant="ghost" disabled={pending}>
+      {state.error && (
+        <p role="alert" className="text-xs text-destructive">
+          {state.error}
+        </p>
+      )}
+      <Button
+        type="submit"
+        size="sm"
+        variant={action === "all" ? "outline" : "ghost"}
+        disabled={pending}
+      >
         {action === "all" ? "全部已读" : "标记已读"}
       </Button>
     </form>
