@@ -4,6 +4,7 @@ import { useActionState } from "react";
 
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { useActionWithToast } from "@/lib/toast";
 import {
   Select,
   SelectContent,
@@ -24,8 +25,12 @@ export function FlexCheckInForm({
 }: {
   zones: Array<{ id: string; name: string; capacity: number }>;
 }) {
+  const actionWithToast = useActionWithToast(startFlexSessionAction, {
+    successMessage: "签到成功，欢迎入场",
+    id: "flex-checkin",
+  });
   const [state, action, pending] = useActionState(
-    startFlexSessionAction,
+    actionWithToast,
     initialState
   );
 

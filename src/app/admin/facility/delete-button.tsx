@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useActionWithToast } from "@/lib/toast";
 import {
   deleteDeskAction,
   deleteMeetingRoomAction,
@@ -21,8 +22,13 @@ export function DeleteButton({
   id: string;
   label: string;
 }) {
+  const handler = kind === "desk" ? deleteDeskAction : deleteMeetingRoomAction;
+  const actionWithToast = useActionWithToast(handler, {
+    successMessage: `已删除「${label}」`,
+    id: `facility-delete-${kind}-${id}`,
+  });
   const [state, action, pending] = useActionState(
-    kind === "desk" ? deleteDeskAction : deleteMeetingRoomAction,
+    actionWithToast,
     initialState
   );
 

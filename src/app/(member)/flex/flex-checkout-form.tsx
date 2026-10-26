@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useActionWithToast } from "@/lib/toast";
 import {
   endFlexSessionAction,
   type ActionState,
@@ -12,8 +13,12 @@ const initialState: ActionState = {};
 
 /** 灵活区离场按钮 */
 export function FlexCheckOutForm({ sessionId }: { sessionId: string }) {
+  const actionWithToast = useActionWithToast(endFlexSessionAction, {
+    successMessage: "已离场签退",
+    id: `flex-checkout-${sessionId}`,
+  });
   const [state, action, pending] = useActionState(
-    endFlexSessionAction,
+    actionWithToast,
     initialState
   );
 

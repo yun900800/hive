@@ -5,6 +5,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { useActionWithToast } from "@/lib/toast";
 import {
   Select,
   SelectContent,
@@ -35,12 +36,28 @@ export function AdminBillingActions({
   invoiceId?: string;
   memberId?: string;
 }) {
-  const [state, formAction, pending] = useActionState(
+  const handler =
     action === "generate"
       ? adminGenerateInvoiceAction
       : action === "pay"
         ? adminPayInvoiceAction
-        : adminDispatchOutboxAction,
+        : adminDispatchOutboxAction;
+  const actionWithToast = useActionWithToast(handler, {
+    successMessage:
+      action === "generate"
+        ? "账单已生成"
+        : action === "pay"
+          ? "已标记支付"
+          : "Outbox 事件已冲刷",
+    id:
+      action === "generate"
+        ? "admin-billing-generate"
+        : action === "pay"
+          ? `admin-billing-pay-${invoiceId ?? "unknown"}`
+          : "admin-billing-dispatch",
+  });
+  const [state, formAction, pending] = useActionState(
+    actionWithToast,
     initialState
   );
 
@@ -120,18 +137,10 @@ export function AdminBillingActions({
 }
 
 function ActionFeedback({ state }: { state: ActionState }) {
-  if (!state.error && !state.success) return null;
+  if (!state.error) return null;
   return (
-    <p
-      role="status"
-      aria-live="polite"
-      className={
-        state.error
-          ? "text-xs text-destructive"
-          : "text-xs text-emerald-600"
-      }
-    >
-      {state.error ?? state.success}
+    <p role="alert" className="text-xs text-destructive">
+      {state.error}
     </p>
   );
 }

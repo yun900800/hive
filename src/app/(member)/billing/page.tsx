@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { CreditCard, Receipt, Wallet } from "lucide-react";
+import { ChevronDown, CreditCard, Receipt, Wallet } from "lucide-react";
 
 import { auth } from "@/auth";
 import {
@@ -105,34 +105,50 @@ export default async function BillingPage() {
                     </div>
                   </div>
 
-                  {inv.lineItems.length > 0 && (
-                    <div className="px-6 py-3">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>消费类型</TableHead>
-                            <TableHead>明细说明</TableHead>
-                            <TableHead className="text-right">金额</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {inv.lineItems.map((item, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell className="font-medium">
-                                <span className="inline-flex items-center rounded-md bg-brand-soft px-2 py-0.5 text-xs text-brand-ink">
-                                  {labelOf("charge", item.chargeType)}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-muted-foreground">
-                                {item.description}
-                              </TableCell>
-                              <TableCell className="text-right font-medium tabular-nums">
-                                {formatYuan(item.amountCents)}
-                              </TableCell>
+                  {inv.lineItems.length > 0 ? (
+                    <details className="group">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 border-t border-border/70 px-6 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/30 [&::-webkit-details-marker]:hidden">
+                        <span className="inline-flex items-center gap-2">
+                          <Receipt className="size-4" aria-hidden />
+                          消费明细（{inv.lineItems.length} 项）
+                        </span>
+                        <ChevronDown
+                          className="size-4 transition-transform group-open:rotate-180"
+                          aria-hidden
+                        />
+                      </summary>
+                      <div className="border-t border-border/60 px-4 py-3 sm:px-6">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>消费类型</TableHead>
+                              <TableHead>明细说明</TableHead>
+                              <TableHead className="text-right">金额</TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                          </TableHeader>
+                          <TableBody>
+                            {inv.lineItems.map((item, idx) => (
+                              <TableRow key={idx}>
+                                <TableCell className="font-medium">
+                                  <span className="inline-flex items-center rounded-md bg-brand-soft px-2 py-0.5 text-xs text-brand-ink">
+                                    {labelOf("charge", item.chargeType)}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="whitespace-normal text-muted-foreground">
+                                  {item.description}
+                                </TableCell>
+                                <TableCell className="text-right font-medium tabular-nums">
+                                  {formatYuan(item.amountCents)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </details>
+                  ) : (
+                    <div className="border-t border-border/70 px-6 py-3 text-xs text-muted-foreground">
+                      暂无消费明细
                     </div>
                   )}
                 </div>

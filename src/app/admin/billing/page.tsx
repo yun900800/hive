@@ -1,10 +1,12 @@
+import { Fragment } from "react";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import { CreditCard, Receipt, Wallet } from "lucide-react";
+import { ChevronDown, CreditCard, Receipt, Wallet } from "lucide-react";
 
 import { db } from "@/lib/db";
 import { invoices, invoiceLineItems, members } from "@/lib/db/schema";
 import { formatYuan, formatDateTime } from "@/lib/format";
+import { labelOf } from "@/lib/labels";
 import { AdminBillingActions } from "./admin-billing-actions";
 import { PageHeader } from "@/components/patterns/page-header";
 import { SectionCard } from "@/components/patterns/section-card";
@@ -31,12 +33,12 @@ export default async function AdminBillingPage() {
   ]);
 
   const memberName = new Map(membersList.map((member) => [member.id, member.name]));
-  const itemCountByInvoice = new Map<string, number>();
+  const linesByInvoice = new Map<string, typeof lines>();
   for (const line of lines) {
-    itemCountByInvoice.set(
-      line.invoiceId,
-      (itemCountByInvoice.get(line.invoiceId) ?? 0) + 1
-    );
+    linesByInvoice.set(line.invoiceId, [
+      ...(linesByInvoice.get(line.invoiceId) ?? []),
+      line,
+    ]);
   }
 
   const paidTotal = rows
@@ -132,37 +134,89 @@ export default async function AdminBillingPage() {
               </TableHeader>
               <TableBody>
                 {sortedRows.map((invoice) => {
-                  const itemCount = itemCountByInvoice.get(invoice.id) ?? 0;
+                  const invoiceLines = linesByInvoice.get(invoice.id) ?? [];
+                  const itemCount = invoiceLines.length;
                   return (
-                    <TableRow key={invoice.id}>
-                      <TableCell className="font-medium">
-                        {memberName.get(invoice.memberId) ?? "已删除会员"}
-                      </TableCell>
-                      <TableCell className="hidden tabular-nums sm:table-cell">
-                        {invoice.billingMonth}
-                      </TableCell>
-                      <TableCell className="tabular-nums">
-                        {formatYuan(invoice.totalCents)}
-                        <span className="ml-1.5 hidden text-xs text-muted-foreground sm:inline">
-                          （{itemCount} 项）
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge kind="invoice" value={invoice.status} />
-                      </TableCell>
-                      <TableCell className="hidden text-muted-foreground lg:table-cell">
-                        {invoice.paidAt ? formatDateTime(invoice.paidAt) : "—"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {invoice.status !== "PAID" && (
-                          <AdminBillingActions
-                            action="pay"
-                            invoiceId={invoice.id}
-                            memberId={invoice.memberId}
-                          />
-                        )}
-                      </TableCell>
-                    </TableRow>
+                    <Fragment key={invoice.id}>
+                      <TableRow>
+                        <TableCell className="font-medium">
+                          {memberName.get(invoice.memberId) ?? "已删除会员"}
+                        </TableCell>
+                        <TableCell className="hidden tabular-nums sm:table-cell">
+                          {invoice.billingMonth}
+                        </TableCell>
+                        <TableCell className="tabular-nums">
+                          {formatYuan(invoice.totalCents)}
+                          <span className="ml-1.5 hidden text-xs text-muted-foreground sm:inline">
+                            （{itemCount} 项）
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge kind="invoice" value={invoice.status} />
+                        </TableCell>
+                        <TableCell className="hidden text-muted-foreground lg:table-cell">
+                          {invoice.paidAt ? formatDateTime(invoice.paidAt) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {invoice.status !== "PAID" && (
+                            <AdminBillingActions
+                              action="pay"
+                              invoiceId={invoice.id}
+                              memberId={invoice.memberId}
+                            />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={6} className="p-0">
+                          <details className="group border-t border-border/60">
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/30 [&::-webkit-details-marker]:hidden">
+                              <span>消费明细（{itemCount} 项）</span>
+                              <ChevronDown
+                                className="size-3.5 transition-transform group-open:rotate-180"
+                                aria-hidden
+                              />
+                            </summary>
+                            <div className="border-t border-border/60 bg-muted/20 px-4 py-3">
+                              {invoiceLines.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">
+                                  暂无消费明细
+                                </p>
+                              ) : (
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>消费类型</TableHead>
+                                      <TableHead>明细说明</TableHead>
+                                      <TableHead className="text-right">
+                                        金额
+                                      </TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {invoiceLines.map((item) => (
+                                      <TableRow key={item.id}>
+                                        <TableCell className="font-medium">
+                                          <span className="inline-flex items-center rounded-md bg-brand-soft px-2 py-0.5 text-xs text-brand-ink">
+                                            {labelOf("charge", item.chargeType)}
+                                          </span>
+                                        </TableCell>
+                                        <TableCell className="whitespace-normal text-muted-foreground">
+                                          {item.description}
+                                        </TableCell>
+                                        <TableCell className="text-right font-medium tabular-nums">
+                                          {formatYuan(item.amountCents)}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              )}
+                            </div>
+                          </details>
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
                   );
                 })}
               </TableBody>
