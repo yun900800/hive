@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarDays, Plus } from "lucide-react";
+import { CalendarDays, Plus, SearchX } from "lucide-react";
 
 import { auth } from "@/auth";
 import * as booking from "@/modules/booking/application/booking-app";
@@ -11,6 +11,14 @@ import {
 } from "@/modules/facility/application/facility-app";
 import { formatDateTime } from "@/lib/format";
 import { BookingActions } from "./booking-actions";
+import { BookingFilterBar } from "./filter-bar";
+import {
+  BOOKING_TYPE_OPTIONS,
+  firstParam,
+  getStatusGroup,
+  isBookingType,
+  parseDateParam,
+} from "./filters";
 import { PageHeader } from "@/components/patterns/page-header";
 import { SectionCard } from "@/components/patterns/section-card";
 import { EmptyState } from "@/components/patterns/empty-state";
@@ -26,18 +34,22 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-const TYPE_LABELS: Record<
-  string,
-  { label: string; kind: "deskBooking" | "roomBooking" | "flexSession" }
-> = {
-  DESK: { label: "固定工位", kind: "deskBooking" },
-  ROOM: { label: "会议室", kind: "roomBooking" },
-  FLEX: { label: "灵活区", kind: "flexSession" },
-};
-
-export default async function MyBookingsPage() {
+export default async function MyBookingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const session = await auth();
   if (!session?.user?.memberId) redirect("/login");
+
+  const params = await searchParams;
+  const typeParam = firstParam(params.type);
+  const type = isBookingType(typeParam) ? typeParam : undefined;
+  const statusGroup = getStatusGroup(firstParam(params.status), type);
+  const fromParam = firstParam(params.from);
+  const toParam = firstParam(params.to);
+  const from = parseDateParam(fromParam, false);
+  const to = parseDateParam(toParam, true);
 
   const memberId = session.user.memberId;
   const [deskList, roomList, flexList, desks, rooms, zones] =
@@ -54,7 +66,7 @@ export default async function MyBookingsPage() {
   const roomById = new Map(rooms.map((room) => [room.id, room]));
   const zoneById = new Map(zones.map((zone) => [zone.id, zone]));
 
-  const rows = [
+  const allRows = [
     ...deskList.map((b) => {
       const desk = deskById.get(b.deskId);
       return {
@@ -99,6 +111,21 @@ export default async function MyBookingsPage() {
     }),
   ].sort((a, b) => b.start.getTime() - a.start.getTime());
 
+  const rows = allRows.filter((row) => {
+    if (type && row.type !== type) return false;
+    if (
+      statusGroup &&
+      !statusGroup.statuses.some((status) => status === row.status)
+    ) {
+      return false;
+    }
+    if (from && row.start.getTime() < from.getTime()) return false;
+    if (to && row.start.getTime() > to.getTime()) return false;
+    return true;
+  });
+
+  const isFiltered = Boolean(type || statusGroup || from || to);
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -123,40 +150,77 @@ export default async function MyBookingsPage() {
         }
       />
 
+      {allRows.length > 0 && (
+        <BookingFilterBar
+          type={type}
+          statusGroup={statusGroup}
+          from={from ? fromParam : undefined}
+          to={to ? toParam : undefined}
+          resultCount={rows.length}
+        />
+      )}
+
       {rows.length === 0 ? (
         <SectionCard
           title="预订记录"
-          description="预订与使用记录会出现在这里。"
+          description={
+            allRows.length === 0
+              ? "预订与使用记录会出现在这里。"
+              : `没有符合当前筛选条件的记录（全部 ${allRows.length} 条）。`
+          }
         >
-          <EmptyState
-            icon={CalendarDays}
-            title="暂无预订记录"
-            description="你还没有创建过工位或会议室预订，或者前往灵活区签到入场。"
-            className="border-0 bg-transparent py-10"
-            action={
-              <div className="flex gap-2">
+          {allRows.length === 0 ? (
+            <EmptyState
+              icon={CalendarDays}
+              title="暂无预订记录"
+              description="你还没有创建过工位或会议室预订，或者前往灵活区签到入场。"
+              className="border-0 bg-transparent py-10"
+              action={
+                <div className="flex gap-2">
+                  <Link
+                    href="/bookings/desk"
+                    className={cn(
+                      buttonVariants({ variant: "brand", size: "sm" })
+                    )}
+                  >
+                    立即订工位
+                  </Link>
+                  <Link
+                    href="/bookings/room"
+                    className={cn(
+                      buttonVariants({ variant: "outline", size: "sm" })
+                    )}
+                  >
+                    预订会议室
+                  </Link>
+                </div>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={SearchX}
+              title="没有符合条件的预订"
+              description="试试调整类型、状态或开始日期。"
+              className="border-0 bg-transparent py-10"
+              action={
                 <Link
-                  href="/bookings/desk"
-                  className={cn(buttonVariants({ variant: "brand", size: "sm" }))}
-                >
-                  立即订工位
-                </Link>
-                <Link
-                  href="/bookings/room"
+                  href="/bookings"
                   className={cn(
-                    buttonVariants({ variant: "outline", size: "sm" })
+                    buttonVariants({ variant: "brand", size: "sm" })
                   )}
                 >
-                  预订会议室
+                  清除筛选
                 </Link>
-              </div>
-            }
-          />
+              }
+            />
+          )}
         </SectionCard>
       ) : (
         <SectionCard
           title="预订记录"
-          description={`共 ${rows.length} 条，按开始时间倒序。`}
+          description={`共 ${rows.length} 条${
+            isFiltered ? `（全部 ${allRows.length} 条）` : ""
+          }，按开始时间倒序。`}
           bodyClassName="p-0"
         >
           <Table className="[&_th:first-child]:pl-5 [&_th:last-child]:pr-5 [&_td:first-child]:pl-5 [&_td:last-child]:pr-5">
@@ -171,7 +235,9 @@ export default async function MyBookingsPage() {
             </TableHeader>
             <TableBody>
               {rows.map((row) => {
-                const typeMeta = TYPE_LABELS[row.type];
+                const typeMeta = BOOKING_TYPE_OPTIONS.find(
+                  (option) => option.value === row.type
+                );
                 return (
                   <TableRow key={row.key}>
                     <TableCell>
