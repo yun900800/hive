@@ -6,7 +6,6 @@ import { Armchair, CheckCircle2, Clock } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/patterns/status-badge";
 import {
   createDeskBookingAction,
   type ActionState,

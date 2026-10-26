@@ -151,6 +151,13 @@ function SidebarContent({
 }) {
   const groups = getNavGroups(variant);
   const meta = VARIANT_META[variant];
+  const activeHref = groups
+    .flatMap((group) => group.items)
+    .filter(
+      (item) =>
+        pathname === item.href || pathname.startsWith(`${item.href}/`)
+    )
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   return (
     <>
@@ -178,8 +185,7 @@ function SidebarContent({
             </p>
             <ul className="space-y-0.5">
               {group.items.map((item) => {
-                const isActive =
-                  pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const isActive = item.href === activeHref;
                 const Icon = item.icon;
                 return (
                   <li key={item.href}>
