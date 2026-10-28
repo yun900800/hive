@@ -1,18 +1,28 @@
 import { Fragment } from "react";
+import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import { ChevronDown, CreditCard, Receipt, Wallet } from "lucide-react";
+import { ChevronDown, CreditCard, Receipt, Search, Wallet } from "lucide-react";
 
 import { db } from "@/lib/db";
 import { invoices, invoiceLineItems, members } from "@/lib/db/schema";
 import { formatYuan, formatDateTime } from "@/lib/format";
 import { labelOf } from "@/lib/labels";
+import {
+  buildQueryString,
+  clampPage,
+  firstParam,
+  parsePage,
+} from "@/lib/search-params";
 import { AdminBillingActions } from "./admin-billing-actions";
+import { BillingFilters, INVOICE_STATUS_VALUES } from "./billing-filters";
 import { PageHeader } from "@/components/patterns/page-header";
+import { Pagination } from "@/components/patterns/pagination";
 import { SectionCard } from "@/components/patterns/section-card";
 import { StatCard } from "@/components/patterns/stat-card";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { EmptyState } from "@/components/patterns/empty-state";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -22,7 +32,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-export default async function AdminBillingPage() {
+const PAGE_SIZE = 10;
+
+export default async function AdminBillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const session = await auth();
   if (session?.user?.role !== "ADMIN") redirect("/dashboard");
 
@@ -58,8 +74,51 @@ export default async function AdminBillingPage() {
       (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0)
   );
 
+  const params = await searchParams;
+  const monthParam = firstParam(params.month);
+  const monthFilter =
+    monthParam && /^\d{4}-\d{2}$/.test(monthParam) ? monthParam : undefined;
+  const statusParam = firstParam(params.status);
+  const statusFilter =
+    statusParam &&
+    (INVOICE_STATUS_VALUES as readonly string[]).includes(statusParam)
+      ? statusParam
+      : undefined;
+  const memberParam = firstParam(params.memberId);
+  const memberFilter =
+    memberParam && memberName.has(memberParam) ? memberParam : undefined;
+
+  const filteredRows = sortedRows.filter((invoice) => {
+    if (monthFilter && invoice.billingMonth !== monthFilter) return false;
+    if (statusFilter && invoice.status !== statusFilter) return false;
+    if (memberFilter && invoice.memberId !== memberFilter) return false;
+    return true;
+  });
+  const hasFilters = Boolean(monthFilter || statusFilter || memberFilter);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const currentPage = clampPage(parsePage(firstParam(params.page)), totalPages);
+  const pageRows = filteredRows.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
+
+  const filterQuery = {
+    month: monthFilter,
+    status: statusFilter,
+    memberId: memberFilter,
+  };
+  const prevHref = `/admin/billing${buildQueryString({
+    ...filterQuery,
+    page: currentPage > 2 ? currentPage - 1 : undefined,
+  })}`;
+  const nextHref = `/admin/billing${buildQueryString({
+    ...filterQuery,
+    page: currentPage < totalPages ? currentPage + 1 : undefined,
+  })}`;
+
   const now = new Date();
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
   return (
     <div className="space-y-8">
@@ -93,6 +152,10 @@ export default async function AdminBillingPage() {
         />
       </section>
 
+      <p className="text-xs text-muted-foreground" role="note">
+        统计卡为全量账单口径，不受下方筛选影响。
+      </p>
+
       <SectionCard
         title="快速出账"
         description="为指定会员生成月度账单，已存在同月账单时不会重复创建。"
@@ -103,20 +166,59 @@ export default async function AdminBillingPage() {
             id: member.id,
             name: member.name,
           }))}
-          month={month}
+          month={currentMonth}
         />
       </SectionCard>
 
+      {rows.length > 0 && (
+        <BillingFilters
+          month={monthFilter}
+          status={statusFilter}
+          memberId={memberFilter}
+          members={membersList.map((member) => ({
+            id: member.id,
+            name: member.name,
+          }))}
+          resultCount={filteredRows.length}
+        />
+      )}
+
       <SectionCard
         title="账单列表"
-        description={`共 ${rows.length} 张账单，按出账时间倒序排列。`}
+        description={`共 ${filteredRows.length} 张账单${hasFilters ? `（全部 ${rows.length} 张）` : ""}，按出账时间倒序排列。`}
         bodyClassName="p-0"
+        footer={
+          filteredRows.length > 0 ? (
+            <Pagination
+              page={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredRows.length}
+              prevHref={prevHref}
+              nextHref={nextHref}
+            />
+          ) : undefined
+        }
       >
-        {sortedRows.length === 0 ? (
+        {rows.length === 0 ? (
           <EmptyState
             icon={Receipt}
             title="还没有账单"
             description="使用上方「快速出账」为会员生成第一张月度账单。"
+            className="border-0 bg-transparent"
+          />
+        ) : filteredRows.length === 0 ? (
+          <EmptyState
+            icon={Search}
+            title="没有符合条件的账单"
+            description="调整月份、状态或会员筛选后再试。"
+            action={
+              <Link
+                href="/admin/billing"
+                className={buttonVariants({ variant: "brand", size: "sm" })}
+              >
+                清除筛选
+              </Link>
+            }
             className="border-0 bg-transparent"
           />
         ) : (
@@ -133,7 +235,7 @@ export default async function AdminBillingPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedRows.map((invoice) => {
+                {pageRows.map((invoice) => {
                   const invoiceLines = linesByInvoice.get(invoice.id) ?? [];
                   const itemCount = invoiceLines.length;
                   return (

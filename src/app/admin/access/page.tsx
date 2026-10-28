@@ -1,17 +1,28 @@
+import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { count } from "drizzle-orm";
-import { ScanLine, ShieldAlert, ShieldCheck, Ticket } from "lucide-react";
+import { ScanLine, Search, ShieldAlert, ShieldCheck, Ticket } from "lucide-react";
 
 import { listRecentAccessLogs } from "@/modules/access/application/access-app";
 import { db } from "@/lib/db";
 import { gatePasses, members } from "@/lib/db/schema";
 import { formatDateTime } from "@/lib/format";
+import {
+  buildQueryString,
+  clampPage,
+  firstParam,
+  parseDateParam,
+  parsePage,
+} from "@/lib/search-params";
+import { AccessFilters } from "./access-filters";
 import { PageHeader } from "@/components/patterns/page-header";
+import { Pagination } from "@/components/patterns/pagination";
 import { SectionCard } from "@/components/patterns/section-card";
 import { StatCard } from "@/components/patterns/stat-card";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { EmptyState } from "@/components/patterns/empty-state";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -21,7 +32,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-export default async function AdminAccessPage() {
+const PAGE_SIZE = 20;
+
+export default async function AdminAccessPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const session = await auth();
   if (session?.user?.role !== "ADMIN") redirect("/dashboard");
 
@@ -31,7 +48,65 @@ export default async function AdminAccessPage() {
     db.select({ id: members.id, name: members.name }).from(members).all(),
   ]);
 
-  const memberName = new Map(membersList.map((member) => [member.id, member.name]));
+  const params = await searchParams;
+  const resultParam = firstParam(params.result);
+  const result =
+    resultParam === "GRANTED" || resultParam === "DENIED"
+      ? resultParam
+      : undefined;
+  const directionParam = firstParam(params.direction);
+  const direction =
+    directionParam === "ENTRY" || directionParam === "EXIT"
+      ? directionParam
+      : undefined;
+  const dateFilter = parseDateParam(firstParam(params.date));
+  const gates = Array.from(new Set(logs.map((log) => log.gateName))).sort(
+    (a, b) => a.localeCompare(b, "zh-CN")
+  );
+  const gateParam = firstParam(params.gate);
+  const gate =
+    gateParam && gates.includes(gateParam) ? gateParam : undefined;
+
+  const filteredLogs = logs.filter((log) => {
+    if (result === "GRANTED" && log.result !== "GRANTED") return false;
+    if (result === "DENIED" && log.result === "GRANTED") return false;
+    if (direction && log.direction !== direction) return false;
+    if (
+      dateFilter &&
+      (log.accessTime < dateFilter.start || log.accessTime >= dateFilter.end)
+    ) {
+      return false;
+    }
+    if (gate && log.gateName !== gate) return false;
+    return true;
+  });
+  const hasFilters = Boolean(result || direction || dateFilter || gate);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
+  const currentPage = clampPage(parsePage(firstParam(params.page)), totalPages);
+  const pageLogs = filteredLogs.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
+
+  const filterQuery = {
+    result,
+    direction,
+    date: dateFilter?.value,
+    gate,
+  };
+  const prevHref = `/admin/access${buildQueryString({
+    ...filterQuery,
+    page: currentPage > 2 ? currentPage - 1 : undefined,
+  })}`;
+  const nextHref = `/admin/access${buildQueryString({
+    ...filterQuery,
+    page: currentPage < totalPages ? currentPage + 1 : undefined,
+  })}`;
+
+  const memberName = new Map(
+    membersList.map((member) => [member.id, member.name])
+  );
   const granted = logs.filter((log) => log.result === "GRANTED").length;
   const denied = logs.length - granted;
 
@@ -42,7 +117,10 @@ export default async function AdminAccessPage() {
         description="查看最近 200 条闸机通行记录与通行证发放情况。"
       />
 
-      <section aria-label="通行概览" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <section
+        aria-label="通行概览"
+        className="grid grid-cols-2 gap-4 lg:grid-cols-4"
+      >
         <StatCard
           label="通行证总数"
           value={passCount.v}
@@ -72,16 +150,57 @@ export default async function AdminAccessPage() {
         />
       </section>
 
+      <p className="text-xs text-muted-foreground" role="note">
+        统计卡为最近 200 条全量口径，不受下方筛选影响；分页为筛选结果的应用层切片。
+      </p>
+
+      {logs.length > 0 && (
+        <AccessFilters
+          result={result}
+          direction={direction}
+          date={dateFilter?.value}
+          gate={gate}
+          gates={gates}
+          resultCount={filteredLogs.length}
+        />
+      )}
+
       <SectionCard
         title="最近通行记录"
-        description="按通行时间倒序排列。"
+        description={`共 ${filteredLogs.length} 条${hasFilters ? "（最近 200 条中筛选）" : ""}，按通行时间倒序排列。`}
         bodyClassName="p-0"
+        footer={
+          filteredLogs.length > 0 ? (
+            <Pagination
+              page={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredLogs.length}
+              prevHref={prevHref}
+              nextHref={nextHref}
+            />
+          ) : undefined
+        }
       >
         {logs.length === 0 ? (
           <EmptyState
             icon={ScanLine}
             title="暂无通行记录"
             description="会员在闸机扫码后，记录会实时出现在这里。"
+            className="border-0 bg-transparent"
+          />
+        ) : filteredLogs.length === 0 ? (
+          <EmptyState
+            icon={Search}
+            title="没有符合条件的通行记录"
+            description="调整结果、方向、日期或闸机筛选后再试。"
+            action={
+              <Link
+                href="/admin/access"
+                className={buttonVariants({ variant: "brand", size: "sm" })}
+              >
+                清除筛选
+              </Link>
+            }
             className="border-0 bg-transparent"
           />
         ) : (
@@ -97,7 +216,7 @@ export default async function AdminAccessPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.map((log) => (
+                {pageLogs.map((log) => (
                   <TableRow key={log.id}>
                     <TableCell className="tabular-nums text-muted-foreground">
                       {formatDateTime(log.accessTime)}
