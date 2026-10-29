@@ -44,6 +44,8 @@ yarn-error.log*
 
 # temporary / session files
 /.tmp
+/.playwright-mcp
+/ui-*.png
 
 # opencode agent workspace
 /.opencode

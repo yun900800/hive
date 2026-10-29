@@ -13,11 +13,20 @@ export default async function MemberLayout({
   if (!session?.user) redirect("/login");
 
   const displayName = session.user.name ?? session.user.email ?? "会员";
+  const canSwitchToAdmin =
+    session.user.role === "ADMIN" && Boolean(session.user.memberId);
 
   return (
     <AppShell
       variant="member"
-      userMenu={<UserMenu name={displayName} role={session.user.role} />}
+      userMenu={
+        <UserMenu
+          name={displayName}
+          role={session.user.role}
+          switchHref={canSwitchToAdmin ? "/admin" : undefined}
+          switchLabel="切换到管理后台"
+        />
+      }
     >
       {children}
     </AppShell>

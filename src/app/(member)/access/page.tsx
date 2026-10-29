@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { QrCode, Ticket, ShieldCheck } from "lucide-react";
+import { Ticket } from "lucide-react";
 
 import { auth } from "@/auth";
 import {
@@ -8,7 +8,6 @@ import {
   listMyAccessLogs,
 } from "@/modules/access/application/access-app";
 import { formatDateTime } from "@/lib/format";
-import { labelOf } from "@/lib/labels";
 import { ScanForm } from "./scan-form";
 import { PageHeader } from "@/components/patterns/page-header";
 import { SectionCard } from "@/components/patterns/section-card";
@@ -123,10 +122,9 @@ export default async function AccessPage() {
         {logs.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">暂无通行记录。</p>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
+          <Table containerClassName="lg:overflow-x-clip">
+            <TableHeader className="sticky top-16 z-10 [&_th]:bg-card">
+              <TableRow>
                   <TableHead>通行时间</TableHead>
                   <TableHead>闸机名称</TableHead>
                   <TableHead>方向</TableHead>
@@ -151,8 +149,7 @@ export default async function AccessPage() {
                   </TableRow>
                 ))}
               </TableBody>
-            </Table>
-          </div>
+          </Table>
         )}
       </SectionCard>
     </div>

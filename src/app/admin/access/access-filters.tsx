@@ -51,7 +51,11 @@ export function AccessFilters({
       title="筛选通行记录"
       description="按结果、方向、日期或闸机筛选，条件会保留在 URL 中。"
       action={
-        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span
+          aria-live="polite"
+          aria-atomic="true"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+        >
           <SlidersHorizontal className="size-3.5" aria-hidden />
           共 {resultCount} 条
         </span>
@@ -70,7 +74,7 @@ export function AccessFilters({
             name="date"
             type="date"
             defaultValue={date}
-            className="w-full sm:w-40"
+            className="h-11 w-full sm:h-9 sm:w-40"
           />
         </div>
 
@@ -81,7 +85,7 @@ export function AccessFilters({
             defaultValue={result ?? "ALL"}
             items={RESULT_ITEMS}
           >
-            <SelectTrigger id="access-result" className="h-9 w-full sm:w-36">
+            <SelectTrigger id="access-result" className="h-11 w-full sm:h-9 sm:w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -101,7 +105,7 @@ export function AccessFilters({
             defaultValue={direction ?? "ALL"}
             items={DIRECTION_ITEMS}
           >
-            <SelectTrigger id="access-direction" className="h-9 w-full sm:w-36">
+            <SelectTrigger id="access-direction" className="h-11 w-full sm:h-9 sm:w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -117,7 +121,7 @@ export function AccessFilters({
         <div className="space-y-1.5">
           <Label htmlFor="access-gate">闸机</Label>
           <Select name="gate" defaultValue={gate ?? "ALL"} items={gateItems}>
-            <SelectTrigger id="access-gate" className="h-9 w-full sm:w-44">
+            <SelectTrigger id="access-gate" className="h-11 w-full sm:h-9 sm:w-44">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -131,12 +135,20 @@ export function AccessFilters({
         </div>
 
         <div className="flex items-center gap-2">
-          <Button type="submit" variant="brand" size="sm">
+          <Button
+            type="submit"
+            variant="brand"
+            size="sm"
+            className="min-h-11 sm:min-h-0"
+          >
             应用筛选
           </Button>
           <Link
             href="/admin/access"
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "min-h-11 sm:min-h-0"
+            )}
           >
             重置
           </Link>

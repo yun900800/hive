@@ -1,4 +1,5 @@
-import { LogOut } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeftRight, LogOut } from "lucide-react";
 
 import { logoutAction } from "@/modules/membership/interface/actions/auth";
 
@@ -11,9 +12,13 @@ function initialsOf(name: string): string {
 export function UserMenu({
   name,
   role,
+  switchHref,
+  switchLabel,
 }: {
   name: string;
   role?: string | null;
+  switchHref?: string;
+  switchLabel?: string;
 }) {
   const memberLabel = role === "ADMIN" ? "管理员" : "会员";
 
@@ -26,11 +31,21 @@ export function UserMenu({
         <p className="truncate text-sm font-medium">{name}</p>
         <p className="truncate text-[11px] text-muted-foreground">{memberLabel}</p>
       </div>
+      {switchHref && (
+        <Link
+          href={switchHref}
+          aria-label={switchLabel ?? "切换视图"}
+          title={switchLabel ?? "切换视图"}
+          className="grid size-11 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:size-8"
+        >
+          <ArrowLeftRight className="size-4" aria-hidden />
+        </Link>
+      )}
       <form action={logoutAction}>
         <button
           type="submit"
           aria-label="退出登录"
-          className="grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="grid size-11 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:size-8"
         >
           <LogOut className="size-4" aria-hidden />
         </button>

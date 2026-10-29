@@ -135,14 +135,20 @@ export default async function MyBookingsPage({
           <>
             <Link
               href="/bookings/desk"
-              className={cn(buttonVariants({ variant: "brand" }))}
+              className={cn(
+                buttonVariants({ variant: "brand" }),
+                "min-h-11 sm:min-h-0"
+              )}
             >
               <Plus className="mr-1.5 size-4" aria-hidden />
               订工位
             </Link>
             <Link
               href="/bookings/room"
-              className={cn(buttonVariants({ variant: "outline" }))}
+              className={cn(
+                buttonVariants({ variant: "outline" }),
+                "min-h-11 sm:min-h-0"
+              )}
             >
               订会议室
             </Link>
@@ -223,8 +229,49 @@ export default async function MyBookingsPage({
           }，按开始时间倒序。`}
           bodyClassName="p-0"
         >
-          <Table className="[&_th:first-child]:pl-5 [&_th:last-child]:pr-5 [&_td:first-child]:pl-5 [&_td:last-child]:pr-5">
-            <TableHeader>
+          <ul className="divide-y divide-border/70 sm:hidden">
+            {rows.map((row) => {
+              const typeMeta = BOOKING_TYPE_OPTIONS.find(
+                (option) => option.value === row.type
+              );
+              return (
+                <li key={row.key} className="space-y-3 px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <span className="inline-flex items-center rounded-md bg-muted px-2 py-1 text-xs font-medium text-foreground">
+                        {typeMeta?.label ?? row.type}
+                      </span>
+                      <p className="truncate font-medium text-foreground">
+                        {row.resourceName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {row.resourceMeta}
+                      </p>
+                    </div>
+                    <StatusBadge kind={row.kind} value={row.status} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDateTime(row.start)} ~{" "}
+                    {row.end ? formatDateTime(row.end) : "进行中"}
+                  </p>
+                  <div className="flex justify-end">
+                    <BookingActions
+                      type={row.type}
+                      id={row.id}
+                      status={row.status}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="hidden sm:block">
+          <Table
+            containerClassName="lg:overflow-x-clip"
+            className="[&_th:first-child]:pl-5 [&_th:last-child]:pr-5 [&_td:first-child]:pl-5 [&_td:last-child]:pr-5"
+          >
+            <TableHeader className="sticky top-16 z-10 [&_th]:bg-card">
               <TableRow>
                 <TableHead>类型</TableHead>
                 <TableHead>资源对象</TableHead>
@@ -272,6 +319,7 @@ export default async function MyBookingsPage({
               })}
             </TableBody>
           </Table>
+          </div>
         </SectionCard>
       )}
     </div>

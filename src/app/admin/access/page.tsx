@@ -204,10 +204,9 @@ export default async function AdminAccessPage({
             className="border-0 bg-transparent"
           />
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
+          <Table containerClassName="lg:overflow-x-clip">
+            <TableHeader className="sticky top-16 z-10 [&_th]:bg-card">
+              <TableRow>
                   <TableHead>通行时间</TableHead>
                   <TableHead>会员</TableHead>
                   <TableHead className="hidden sm:table-cell">闸机</TableHead>
@@ -240,8 +239,7 @@ export default async function AdminAccessPage({
                   </TableRow>
                 ))}
               </TableBody>
-            </Table>
-          </div>
+          </Table>
         )}
       </SectionCard>
     </div>

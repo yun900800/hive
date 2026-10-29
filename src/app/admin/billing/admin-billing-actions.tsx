@@ -77,7 +77,7 @@ export function AdminBillingActions({
               disabled={!members || members.length === 0}
               items={memberItems}
             >
-              <SelectTrigger id="invoice-member" className="w-48">
+              <SelectTrigger id="invoice-member" className="h-11 w-full sm:h-9 sm:w-48">
                 <SelectValue placeholder="选择会员" />
               </SelectTrigger>
               <SelectContent>
@@ -98,12 +98,17 @@ export function AdminBillingActions({
               defaultValue={month}
               pattern="\d{4}-\d{2}"
               placeholder="2026-10"
-              className="w-36"
+              className="h-11 w-full sm:h-9 sm:w-36"
               required
             />
           </div>
 
-          <Button type="submit" variant="brand" disabled={pending}>
+          <Button
+            type="submit"
+            variant="brand"
+            disabled={pending}
+            className="min-h-11 sm:min-h-0"
+          >
             {pending ? "出账中…" : "生成账单"}
           </Button>
         </div>
@@ -122,6 +127,7 @@ export function AdminBillingActions({
         size={action === "pay" ? "sm" : "default"}
         variant={action === "pay" ? "outline" : "secondary"}
         disabled={pending}
+        className="min-h-11 sm:min-h-0"
       >
         {action === "pay"
           ? pending

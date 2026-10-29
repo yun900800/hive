@@ -52,7 +52,11 @@ export function BillingFilters({
       title="筛选账单"
       description="按月份、状态或会员筛选，条件会保留在 URL 中。"
       action={
-        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span
+          aria-live="polite"
+          aria-atomic="true"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+        >
           <SlidersHorizontal className="size-3.5" aria-hidden />
           共 {resultCount} 张
         </span>
@@ -71,7 +75,7 @@ export function BillingFilters({
             name="month"
             type="month"
             defaultValue={month}
-            className="w-full sm:w-40"
+            className="h-11 w-full sm:h-9 sm:w-40"
           />
         </div>
 
@@ -82,7 +86,7 @@ export function BillingFilters({
             defaultValue={status ?? "ALL"}
             items={STATUS_ITEMS}
           >
-            <SelectTrigger id="billing-status" className="h-9 w-full sm:w-40">
+            <SelectTrigger id="billing-status" className="h-11 w-full sm:h-9 sm:w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -102,7 +106,7 @@ export function BillingFilters({
             defaultValue={memberId ?? "ALL"}
             items={memberItems}
           >
-            <SelectTrigger id="billing-member" className="h-9 w-full sm:w-52">
+            <SelectTrigger id="billing-member" className="h-11 w-full sm:h-9 sm:w-52">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -116,12 +120,20 @@ export function BillingFilters({
         </div>
 
         <div className="flex items-center gap-2">
-          <Button type="submit" variant="brand" size="sm">
+          <Button
+            type="submit"
+            variant="brand"
+            size="sm"
+            className="min-h-11 sm:min-h-0"
+          >
             应用筛选
           </Button>
           <Link
             href="/admin/billing"
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "min-h-11 sm:min-h-0"
+            )}
           >
             重置
           </Link>

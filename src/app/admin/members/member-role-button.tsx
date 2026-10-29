@@ -42,6 +42,7 @@ export function MemberRoleButton({
         size="sm"
         variant={currentRole === "ADMIN" ? "outline" : "secondary"}
         disabled={pending}
+        className="min-h-11 sm:min-h-0"
       >
         {pending
           ? "处理中…"

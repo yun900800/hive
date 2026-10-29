@@ -129,7 +129,7 @@ export function MemberDirectory({ rows }: { rows: MemberRow[] }) {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="搜索姓名或邮箱"
-                className="h-9 pl-9"
+                className="h-11 pl-9 sm:h-9"
               />
             </div>
           </div>
@@ -141,7 +141,7 @@ export function MemberDirectory({ rows }: { rows: MemberRow[] }) {
               onValueChange={(value) => setTier(value ?? "ALL")}
               items={TIER_ITEMS}
             >
-              <SelectTrigger id="member-tier" className="h-9 w-full">
+              <SelectTrigger id="member-tier" className="h-11 w-full sm:h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -161,7 +161,7 @@ export function MemberDirectory({ rows }: { rows: MemberRow[] }) {
               onValueChange={(value) => setRole(value ?? "ALL")}
               items={ROLE_ITEMS}
             >
-              <SelectTrigger id="member-role" className="h-9 w-full">
+              <SelectTrigger id="member-role" className="h-11 w-full sm:h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -181,7 +181,7 @@ export function MemberDirectory({ rows }: { rows: MemberRow[] }) {
               onValueChange={(value) => setSubscription(value ?? "ALL")}
               items={SUBSCRIPTION_ITEMS}
             >
-              <SelectTrigger id="member-subscription" className="h-9 w-full">
+              <SelectTrigger id="member-subscription" className="h-11 w-full sm:h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -198,7 +198,7 @@ export function MemberDirectory({ rows }: { rows: MemberRow[] }) {
             <Button
               type="button"
               variant="outline"
-              className="w-full"
+              className="min-h-11 w-full sm:min-h-0"
               onClick={resetFilters}
               disabled={!hasFilters}
             >
@@ -230,15 +230,80 @@ export function MemberDirectory({ rows }: { rows: MemberRow[] }) {
             description="试试调整搜索词、等级、角色或订阅状态。"
             className="border-0 bg-transparent"
             action={
-              <Button type="button" variant="brand" size="sm" onClick={resetFilters}>
+              <Button
+                type="button"
+                variant="brand"
+                size="sm"
+                onClick={resetFilters}
+                className="min-h-11 sm:min-h-0"
+              >
                 清除筛选
               </Button>
             }
           />
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
+          <>
+            <ul className="divide-y divide-border/70 sm:hidden">
+              {filteredRows.map((row) => (
+                <li key={row.id} className="space-y-3 px-4 py-4">
+                  <div className="flex items-center gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-soft text-sm font-semibold text-brand-ink ring-1 ring-brand/20">
+                      {initialOf(row.name)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{row.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {row.email}
+                      </p>
+                    </div>
+                    <StatusBadge kind="tier" value={row.tier} />
+                  </div>
+
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                    <div>
+                      <dt className="text-muted-foreground">信用分</dt>
+                      <dd className="mt-0.5 font-medium tabular-nums">
+                        {row.creditScore}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">当前套餐</dt>
+                      <dd className="mt-0.5 font-medium">
+                        {row.planType
+                          ? labelOf("planType", row.planType)
+                          : "未订阅"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">账号角色</dt>
+                      <dd className="mt-0.5 font-medium">
+                        {row.role ? (
+                          <StatusBadge kind="role" value={row.role} />
+                        ) : (
+                          "无登录账号"
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  {row.role && (
+                    <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                      <span className="text-xs text-muted-foreground">
+                        {row.isCurrentAdmin ? "当前登录账号" : "账号操作"}
+                      </span>
+                      <MemberRoleButton
+                        memberId={row.id}
+                        currentRole={row.role}
+                      />
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            <div className="hidden sm:block">
+            <Table containerClassName="lg:overflow-x-clip">
+              <TableHeader className="sticky top-16 z-10 [&_th]:bg-card">
                 <TableRow>
                   <TableHead>会员</TableHead>
                   <TableHead className="hidden sm:table-cell">等级</TableHead>
@@ -313,7 +378,8 @@ export function MemberDirectory({ rows }: { rows: MemberRow[] }) {
                 ))}
               </TableBody>
             </Table>
-          </div>
+            </div>
+          </>
         )}
       </SectionCard>
     </div>

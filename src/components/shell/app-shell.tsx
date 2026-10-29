@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, Hexagon, Menu, X } from "lucide-react";
@@ -30,19 +30,59 @@ const VARIANT_META: Record<
 export function AppShell({ variant, userMenu, children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileNavRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const active = findActiveItem(pathname, variant);
   const meta = VARIANT_META[variant];
 
   useEffect(() => {
     if (!mobileOpen) return;
+
+    const drawer = mobileNavRef.current;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const getFocusable = () =>
+      drawer
+        ? Array.from(
+            drawer.querySelectorAll<HTMLElement>(
+              'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            )
+          ).filter((element) => element.offsetParent !== null)
+        : [];
+
+    getFocusable()[0]?.focus();
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileOpen(false);
+      if (event.key === "Escape") {
+        setMobileOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = getFocusable();
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!drawer?.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
+
     document.addEventListener("keydown", onKeyDown);
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = "";
+      previousFocus?.focus();
     };
   }, [mobileOpen]);
 
@@ -66,10 +106,14 @@ export function AppShell({ variant, userMenu, children }: AppShellProps) {
           <button
             type="button"
             aria-label="关闭导航菜单"
+            aria-hidden="true"
+            tabIndex={-1}
             className="absolute inset-0 bg-foreground/35 backdrop-blur-[2px]"
             onClick={() => setMobileOpen(false)}
           />
           <div
+            ref={mobileNavRef}
+            id="mobile-nav-drawer"
             role="dialog"
             aria-modal="true"
             aria-label="导航菜单"
@@ -78,7 +122,7 @@ export function AppShell({ variant, userMenu, children }: AppShellProps) {
             <button
               type="button"
               aria-label="关闭导航菜单"
-              className="absolute right-3 top-4 grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="absolute right-3 top-4 grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => setMobileOpen(false)}
             >
               <X className="size-4" aria-hidden />
@@ -96,10 +140,13 @@ export function AppShell({ variant, userMenu, children }: AppShellProps) {
       <div className="lg:pl-64">
         <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border/80 bg-background/85 px-4 backdrop-blur-md supports-[backdrop-filter]:bg-background/70 sm:px-6 lg:px-8">
           <button
+            ref={menuButtonRef}
             type="button"
             aria-label="打开导航菜单"
             aria-expanded={mobileOpen}
-            className="grid size-9 place-items-center rounded-lg text-foreground hover:bg-muted lg:hidden"
+            aria-controls="mobile-nav-drawer"
+            aria-haspopup="dialog"
+            className="grid size-11 place-items-center rounded-lg text-foreground hover:bg-muted lg:hidden"
             onClick={() => setMobileOpen(true)}
           >
             <Menu className="size-5" aria-hidden />
@@ -119,7 +166,7 @@ export function AppShell({ variant, userMenu, children }: AppShellProps) {
             <Link
               href={variant === "admin" ? "/admin/access" : "/notifications"}
               aria-label={variant === "admin" ? "通行记录" : "通知中心"}
-              className="grid size-9 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="grid size-11 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:size-9"
             >
               <Bell className="size-[18px]" aria-hidden />
             </Link>
@@ -194,7 +241,7 @@ function SidebarContent({
                       onClick={onNavigate}
                       aria-current={isActive ? "page" : undefined}
                       className={cn(
-                        "relative flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm transition-colors",
+                        "relative flex h-11 items-center gap-2.5 rounded-lg px-3 text-sm transition-colors lg:h-9",
                         isActive
                           ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                           : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"

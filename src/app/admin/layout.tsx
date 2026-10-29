@@ -18,7 +18,14 @@ export default async function AdminLayout({
   return (
     <AppShell
       variant="admin"
-      userMenu={<UserMenu name={displayName} role={session.user.role} />}
+      userMenu={
+        <UserMenu
+          name={displayName}
+          role={session.user.role}
+          switchHref={session.user.memberId ? "/dashboard" : undefined}
+          switchLabel="切换到会员端"
+        />
+      }
     >
       {children}
     </AppShell>

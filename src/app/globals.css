@@ -175,6 +175,11 @@
     background: var(--brand-soft);
     color: var(--brand-ink);
   }
+  /* 链接、折叠标题等非按钮交互元素也必须有清晰的键盘焦点 */
+  :where(a, summary, [role="button"]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
   /* 表格与金额里的数字对齐更整齐 */
   table,
   .tabular {

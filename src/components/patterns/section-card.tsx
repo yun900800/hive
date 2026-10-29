@@ -22,7 +22,7 @@ export function SectionCard({
   return (
     <section
       className={cn(
-        "overflow-hidden rounded-xl border border-border/80 bg-card ring-1 ring-foreground/[0.02]",
+        "overflow-clip rounded-xl border border-border/80 bg-card ring-1 ring-foreground/[0.02]",
         className
       )}
     >

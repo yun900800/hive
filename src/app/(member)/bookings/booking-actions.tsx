@@ -97,7 +97,13 @@ function ActionButton({
           {state.error}
         </p>
       )}
-      <Button type="submit" size="sm" variant={handler.variant ?? "default"} disabled={pending}>
+      <Button
+        type="submit"
+        size="sm"
+        variant={handler.variant ?? "default"}
+        disabled={pending}
+        className="min-h-11 sm:min-h-0"
+      >
         {handler.label}
       </Button>
     </form>

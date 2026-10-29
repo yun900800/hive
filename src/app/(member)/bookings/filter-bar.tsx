@@ -37,7 +37,7 @@ function buildHref({
 
 function chipClass(active: boolean) {
   return cn(
-    "rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+    "inline-flex min-h-11 items-center rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors sm:min-h-0",
     active
       ? "border-brand bg-brand-soft text-brand-ink"
       : "border-border bg-background text-muted-foreground hover:border-brand/40 hover:text-foreground"
@@ -64,7 +64,11 @@ export function BookingFilterBar({
       title="筛选预订"
       description="按类型、状态或开始日期筛选，条件会保留在 URL 中。"
       action={
-        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span
+          aria-live="polite"
+          aria-atomic="true"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+        >
           <SlidersHorizontal className="size-3.5" aria-hidden />
           共 {resultCount} 条
         </span>
@@ -145,7 +149,7 @@ export function BookingFilterBar({
               name="from"
               type="date"
               defaultValue={from}
-              className="h-9 w-full sm:w-40"
+              className="h-11 w-full sm:h-9 sm:w-40"
             />
           </div>
 
@@ -158,18 +162,24 @@ export function BookingFilterBar({
               name="to"
               type="date"
               defaultValue={to}
-              className="h-9 w-full sm:w-40"
+              className="h-11 w-full sm:h-9 sm:w-40"
             />
           </div>
 
           <div className="flex items-center gap-2">
-            <Button type="submit" variant="brand" size="sm">
+            <Button
+              type="submit"
+              variant="brand"
+              size="sm"
+              className="min-h-11 sm:min-h-0"
+            >
               应用时间
             </Button>
             <Link
               href="/bookings"
               className={cn(
-                buttonVariants({ variant: "outline", size: "sm" })
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "min-h-11 sm:min-h-0"
               )}
             >
               重置

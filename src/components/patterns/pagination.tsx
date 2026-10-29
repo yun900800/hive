@@ -21,7 +21,11 @@ export function Pagination({
 
   const disabledClass = cn(
     buttonVariants({ variant: "outline", size: "sm" }),
-    "pointer-events-none opacity-50"
+    "pointer-events-none min-h-11 opacity-50 sm:min-h-0"
+  );
+  const linkClass = cn(
+    buttonVariants({ variant: "outline", size: "sm" }),
+    "min-h-11 sm:min-h-0"
   );
 
   return (
@@ -34,7 +38,7 @@ export function Pagination({
       </p>
       <div className="flex items-center gap-2">
         {page > 1 ? (
-          <Link href={prevHref} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+          <Link href={prevHref} className={linkClass}>
             <ChevronLeft className="mr-1 size-4" aria-hidden />
             上一页
           </Link>
@@ -45,7 +49,7 @@ export function Pagination({
           </span>
         )}
         {page < totalPages ? (
-          <Link href={nextHref} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+          <Link href={nextHref} className={linkClass}>
             下一页
             <ChevronRight className="ml-1 size-4" aria-hidden />
           </Link>
