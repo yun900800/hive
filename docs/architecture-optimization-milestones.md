@@ -32,7 +32,7 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
 
 | 里程碑 | 主题 | 严重度 | 任务数 | 已完成 | 状态 |
 |---|---|---|---:|---:|---|
-| M0 | 止血：事件可靠性、并发、时区、授权、环境 | P0 | 12 | 11 | 🟨 进行中（仅剩人工项 M0-11） |
+| M0 | 止血：事件可靠性、并发、时区、授权、环境 | P0 | 12 | 11 | ✅ 完成（M0-11 暂缓） |
 | M1 | 计费一致性 | P1 | 8 | 0 | ⬜ 未开始 |
 | M2 | 数据访问规模 | P1 | 8 | 0 | ⬜ 未开始 |
 | M3 | 模块边界与可维护性 | P2 | 9 | 0 | ⬜ 未开始 |
@@ -41,6 +41,8 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
 | **合计** |  |  | **50** | **11** | 🟨 进行中 |
 
 状态图例：⬜ 未开始 / 🟨 进行中 / ✅ 完成
+
+> 说明：M0-11（生产账号与密钥轮换）经项目方确认**暂缓**，仍计入未完成数，故合计为 11/50；M0 其余 11 项已上线。
 
 ## 问题索引（严重度 → 里程碑）
 
@@ -117,9 +119,11 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
   - 新增 `src/lib/env.ts`（zod）；生产运行时强制 `DATABASE_URL`、`AUTH_SECRET`
   - 移除 `lib/db/index.ts` 的生产本地文件回落（构建期仍允许回落，避免 `next build` 失败）
   - `CRON_SECRET` 缺失改为启动告警而非抛错（避免升级瞬间整站 500），见「实施备注」
-- [ ] **M0-11 生产账号与仓库（人工项）**
-  - 修改 `admin@hive.com` 默认口令
-  - 评估公开仓库是否保留；保留则轮换 Turso Token 与 `AUTH_SECRET`，并把「URL 内嵌 token」改为 `DATABASE_AUTH_TOKEN`
+- [ ] **M0-11 生产账号与仓库（⏸ 暂缓：演示项目，已接受风险）**
+  - 未修改 `admin@hive.com` 默认口令
+  - 未轮换 `AUTH_SECRET` / Turso Token；公开仓库与「`DATABASE_URL` 内嵌 token」维持现状
+  - 决策依据：2026-10-29 与项目方确认，本项目仅用于演示、不对外推广，暂不处理
+  - 触发条件：若后续公开推广、出现异常登录或发生数据异常，必须回头执行本项（口令 + 双密钥轮换，改为 `DATABASE_AUTH_TOKEN`）
 - [x] **M0-12 M0 回归测试**
   - 队头阻塞：50 条 `noSubscriber` + 1 条 `invoice-issued`，两轮 dispatch 内后者必须 PROCESSED
   - 重试：handler 抛错 → PENDING（attempts=1、lastError、nextAttemptAt）→ 达上限 DEAD
@@ -140,7 +144,7 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
 4. **迁移 0007 删除了重复的 `invoice_line_item.occurredAt` ALTER**：
    手写的 0006 没有 snapshot，drizzle-kit 会重复生成；删除后 snapshot 仍包含该列，后续 diff 正常。
 5. **本地开发库用 `drizzle-kit push` 同步**（历史库只有 5 条迁移记录，直接 migrate 会在 0005/0006 重复加列）。
-   生产 Turso 仍需在执行 `npm run db:migrate` 后才可上线本批代码。
+   生产 Turso 已于 2026-10-29 完成 `db:migrate`，详见「上线记录」。
 
 ### 涉及文件
 
@@ -183,17 +187,25 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
 ### 完成记录
 
 - 日期：2026-10-29
-- Commit：*(未提交)* —— 工作区仍含 P7 之后未提交的 UI 改动，需先分离再按块提交
-- 验证结果：
+- Commit：`1b04dfc`（M0 代码 + 迁移 0007 + 本文档）、`022a8ef`（P7 之后遗留的 UI 打磨）
+- 本地验证：
   - `npx tsc --noEmit` 通过
   - `npm run lint` 0 error（存量 warning 未新增）
-  - `npm test` 全部通过（22 → 25 个测试文件，177 个用例）
+  - `npm test` 全部通过（25 个测试文件，177 个用例）
   - `npm run build` 通过（Next.js 16.2.12 / Turbopack）
-- 上线前置（未执行，需人工/审批）：
-  1. 生产 Turso 执行 `npm run db:migrate`（应用 `drizzle/0007_minor_dreaming_celestial.sql`）
-  2. 回滚预案：旧代码不识别 `PROCESSING`，回滚前先
-     `UPDATE outbox_event SET status='PENDING', lockedAt=NULL WHERE status='PROCESSING';`
-  3. M0-11：修改默认管理员口令、轮换 `AUTH_SECRET` / Turso Token
+
+#### 上线记录（2026-10-29）
+
+- **生产迁移：已执行**。生产 Turso 原只有 4 条 `__drizzle_migrations` 记录，而 0004–0006 的 schema 变更已由历史 push 生效。处理顺序：只读核对列/索引确实存在且无重复 `ACTIVE` 订阅与弹性会话 → 按真实文件 hash + journal 时间戳补齐 0004–0006 记账行 → `drizzle-kit migrate` 只应用 0007。
+  验证：`__drizzle_migrations` = 8 条；`resource_lock` 表、`outbox_event_status_idx`、`flex_session_active_member_idx`、`user.sessionVersion`、outbox 三个新列均存在。
+- **Vercel：已部署**。推送 `master` 触发自动构建，38s Ready；GitHub Deployment SHA = `022a8ef`。冒烟：`GET /login` 200、`GET /` 200。
+- **线上 outbox 验证**：`GET /api/outbox/dispatch` 返回 `{"processed":0,"skipped":1,"failed":0,"dead":0,"deferred":0}`；1 条滞留的 `access.gate-pass-created`（无订阅者）转为 `SKIPPED`。队列仅剩 `PROCESSED 10 / SKIPPED 1`，无 `PENDING/FAILED`。
+- **运维修复**：GitHub Actions `Outbox Dispatch` 此前处于 `disabled_inactivity`（最后一次成功为 10-19），cron 已停跑 10 天；已重新启用并手动触发成功（10s）。
+- **顺序约束**：先迁移、后部署。新代码会查询 `lockedAt`/`lastError`，先部署会直接 500。
+- **回滚预案（未触发）**：回滚前执行
+  `UPDATE outbox_event SET status='PENDING', lockedAt=NULL WHERE status='PROCESSING';`
+  本次部署后库中无 `PROCESSING` 行。
+- **M0-11**：按项目方决策暂缓（见任务条目），未计入完成数。
 - 说明：历史账单口径不重算；M0 之前按 UTC 计月，之后按北京时间计月
 
 ---
