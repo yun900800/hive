@@ -56,8 +56,15 @@ CREATE TABLE IF NOT EXISTS outbox_event (
   payload text NOT NULL,
   status text DEFAULT 'PENDING' NOT NULL,
   attempts integer DEFAULT 0 NOT NULL,
+  lastError text,
+  nextAttemptAt integer,
+  lockedAt integer,
   createdAt integer,
   processedAt integer
+);
+CREATE TABLE IF NOT EXISTS resource_lock (
+  resourceId text PRIMARY KEY NOT NULL,
+  version integer DEFAULT 0 NOT NULL
 );
 CREATE TABLE IF NOT EXISTS usage_record (
   id text PRIMARY KEY,
@@ -279,5 +286,22 @@ describe("会议室/办公室计费 — 开始使用即出消费明细", () => {
     expect(overtime).toBeDefined();
     expect(overtime?.referenceId).toBe(bookingId);
     expect(overtime?.amountCents).toBeGreaterThan(0);
+  });
+
+  it("并发预订同一会议室同一时段只成功一次", async () => {
+    const start = new Date(Date.now() + 60_000);
+    const end = new Date(start.getTime() + 3600_000);
+    const input = { memberId, roomId, startTime: start, endTime: end };
+
+    const results = await Promise.allSettled([
+      booking.createRoomBooking(input),
+      booking.createRoomBooking(input),
+    ]);
+
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+
+    const rows = await testDb.select().from(schema.roomBookings).all();
+    expect(rows).toHaveLength(1);
   });
 });

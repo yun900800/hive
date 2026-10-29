@@ -50,6 +50,13 @@
       "when": 1787290000000,
       "tag": "0006_add_invoice_line_occurred_at",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793245189148,
+      "tag": "0007_minor_dreaming_celestial",
+      "breakpoints": true
     }
   ]
 }

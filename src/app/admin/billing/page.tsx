@@ -7,6 +7,7 @@ import { ChevronDown, CreditCard, Receipt, Search, Wallet } from "lucide-react";
 import { db } from "@/lib/db";
 import { invoices, invoiceLineItems, members } from "@/lib/db/schema";
 import { formatYuan, formatDateTime } from "@/lib/format";
+import { monthKey } from "@/shared/clock";
 import { labelOf } from "@/lib/labels";
 import {
   buildQueryString,
@@ -117,8 +118,7 @@ export default async function AdminBillingPage({
     page: currentPage < totalPages ? currentPage + 1 : undefined,
   })}`;
 
-  const now = new Date();
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const currentMonth = monthKey();
 
   return (
     <div className="space-y-8">
@@ -222,9 +222,88 @@ export default async function AdminBillingPage({
             className="border-0 bg-transparent"
           />
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
+          <>
+            <ul className="divide-y divide-border/70 sm:hidden">
+              {pageRows.map((invoice) => {
+                const invoiceLines = linesByInvoice.get(invoice.id) ?? [];
+                const itemCount = invoiceLines.length;
+                return (
+                  <li key={invoice.id} className="space-y-3 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">
+                          {memberName.get(invoice.memberId) ?? "已删除会员"}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {invoice.billingMonth} · {itemCount} 项
+                        </p>
+                      </div>
+                      <StatusBadge kind="invoice" value={invoice.status} />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-lg font-semibold tabular-nums">
+                        {formatYuan(invoice.totalCents)}
+                      </p>
+                      {invoice.status !== "PAID" && (
+                        <AdminBillingActions
+                          action="pay"
+                          invoiceId={invoice.id}
+                          memberId={invoice.memberId}
+                        />
+                      )}
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      支付时间：
+                      {invoice.paidAt ? formatDateTime(invoice.paidAt) : "—"}
+                    </p>
+
+                    <details className="group rounded-lg border border-border/60 bg-muted/20">
+                      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/30 [&::-webkit-details-marker]:hidden">
+                        <span>消费明细（{itemCount} 项）</span>
+                        <ChevronDown
+                          className="size-3.5 transition-transform group-open:rotate-180"
+                          aria-hidden
+                        />
+                      </summary>
+                      <div className="border-t border-border/60 px-3 py-2">
+                        {invoiceLines.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            暂无消费明细
+                          </p>
+                        ) : (
+                          <ul className="space-y-2">
+                            {invoiceLines.map((item) => (
+                              <li
+                                key={item.id}
+                                className="flex items-start justify-between gap-3 text-xs"
+                              >
+                                <span className="min-w-0">
+                                  <span className="inline-flex items-center rounded-md bg-brand-soft px-2 py-0.5 text-brand-ink">
+                                    {labelOf("charge", item.chargeType)}
+                                  </span>
+                                  <span className="mt-1 block text-muted-foreground">
+                                    {item.description}
+                                  </span>
+                                </span>
+                                <span className="shrink-0 font-medium tabular-nums">
+                                  {formatYuan(item.amountCents)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </details>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="hidden sm:block">
+            <Table containerClassName="lg:overflow-x-clip">
+              <TableHeader className="sticky top-16 z-10 [&_th]:bg-card">
                 <TableRow>
                   <TableHead>会员</TableHead>
                   <TableHead className="hidden sm:table-cell">账单月份</TableHead>
@@ -323,7 +402,8 @@ export default async function AdminBillingPage({
                 })}
               </TableBody>
             </Table>
-          </div>
+            </div>
+          </>
         )}
       </SectionCard>
     </div>

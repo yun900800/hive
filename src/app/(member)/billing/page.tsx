@@ -8,6 +8,8 @@ import {
   getPaidTotal,
   ensureMonthlyInvoiceIfNeeded,
 } from "@/modules/billing/application/billing-app";
+// 账单页可能触发惰性出账（invoice-issued → 通知），必须注册订阅者
+import "@/modules/notification/application/bootstrap";
 import { formatYuan, formatDateTime } from "@/lib/format";
 import { labelOf } from "@/lib/labels";
 import { BillingActions } from "./billing-actions";

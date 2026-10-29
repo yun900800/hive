@@ -58,6 +58,9 @@ CREATE TABLE IF NOT EXISTS outbox_event (
   payload text NOT NULL,
   status text DEFAULT 'PENDING' NOT NULL,
   attempts integer DEFAULT 0 NOT NULL,
+  lastError text,
+  nextAttemptAt integer,
+  lockedAt integer,
   createdAt integer,
   processedAt integer
 );

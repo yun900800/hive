@@ -5,6 +5,7 @@ import { subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { generateMonthlyInvoice } from "@/modules/billing/application/billing-app";
 import { dispatchOutboxEvents } from "@/shared/outbox";
+import { monthKey } from "@/shared/clock";
 import "@/modules/billing/application/bootstrap";
 import "@/modules/access/application/bootstrap";
 import "@/modules/notification/application/bootstrap";
@@ -15,13 +16,8 @@ import "@/modules/notification/application/bootstrap";
  * - POST —— 管理员手动触发，认证：admin session
  * 遍历所有 ACTIVE 订阅会员，为当月生成/追加账单，最后冲刷 outbox 事件（通知）。
  */
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
 async function runMonthlyInvoicing() {
-  const month = currentMonth();
+  const month = monthKey();
   const activeSubs = await db
     .select({ memberId: subscriptions.memberId })
     .from(subscriptions)

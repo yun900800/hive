@@ -1,4 +1,5 @@
 import type { SubscriptionStatus } from "./types";
+import { monthKey, monthRange } from "@/shared/clock";
 
 /**
  * Subscription domain rules — 订阅状态与有效期规则。
@@ -16,16 +17,9 @@ export function prorateMonthlyFee(
   startDate: Date,
   billingMonth: Date
 ): number {
-  const monthStart = new Date(
-    billingMonth.getFullYear(),
-    billingMonth.getMonth(),
-    1
-  );
-  const nextMonthStart = new Date(
-    billingMonth.getFullYear(),
-    billingMonth.getMonth() + 1,
-    1
-  );
+  // 按业务时区（+08:00）取月边界，避免服务器在 UTC 时把月初算到上个月
+  const { start: monthStart, end: monthEnd } = monthRange(monthKey(billingMonth));
+  const nextMonthStart = new Date(monthEnd.getTime() + 1);
   const daysInMonth = Math.round(
     (nextMonthStart.getTime() - monthStart.getTime()) / 86_400_000
   );

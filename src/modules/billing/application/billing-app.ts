@@ -11,20 +11,16 @@ import {
 } from "@/lib/db/schema";
 import { appendOutboxEvents, dispatchOutboxEvents } from "@/shared/outbox";
 import { createEvent } from "@/shared/events";
+import { monthKey, monthRange } from "@/shared/clock";
 import {
   calculateFlexUsage,
   calculateRoomUsage,
   calculateDeskUsage,
   applyFlexMonthlyCap,
-  memberTierDiscountRate,
 } from "../domain/rate-policy";
 import { calculateRoomOvertime } from "../domain/overtime-policy";
-import {
-  aggregateLineItems,
-  buildInvoice,
-  markInvoicePaid,
-} from "../domain/invoice";
-import type { ChargeType, Invoice, InvoiceLineItem, UsageRecord } from "../domain/types";
+import { buildInvoice, markInvoicePaid } from "../domain/invoice";
+import type { ChargeType, Invoice, InvoiceLineItem } from "../domain/types";
 
 /**
  * BillingApplicationService — 计费用例编排。
@@ -34,19 +30,6 @@ import type { ChargeType, Invoice, InvoiceLineItem, UsageRecord } from "../domai
 // ---------- 工具 ----------
 
 const HOUR_MS = 3_600_000;
-
-function monthKey(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
-
-function monthRange(month: string): { start: Date; end: Date } {
-  const [y, m] = month.split("-").map(Number);
-  const start = new Date(y, m - 1, 1);
-  const end = new Date(y, m, 0, 23, 59, 59, 999);
-  return { start, end };
-}
 
 /** 幂等写入使用记录（唯一索引 chargeType+referenceId 防重复） */
 async function insertUsage(params: {
@@ -416,7 +399,7 @@ export async function generateMonthlyInvoice(
     }
   } else {
     // 无未支付账单：生成新账单，只包含未入账消费明细（已支付账单已入账的跳过）
-    let items = rows
+    const items = rows
       .filter((r) => !invoicedRefIds.has(r.referenceId))
       .map((r) => ({
         chargeType: r.chargeType as ChargeType,

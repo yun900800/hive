@@ -2,8 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { getSessionMemberId } from "@/lib/auth-guards";
+import { monthKey } from "@/shared/clock";
 import * as billing from "@/modules/billing/application/billing-app";
 import "@/modules/billing/application/bootstrap";
+// 出账会发出 billing.invoice-issued，通知订阅者必须在本进程注册
+import "@/modules/notification/application/bootstrap";
 
 export type ActionState = { error?: string };
 
@@ -15,8 +18,7 @@ export async function generateMyInvoiceAction(
   const memberId = await getSessionMemberId();
   if (!memberId) return { error: "请先登录会员账号" };
 
-  const now = new Date();
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const month = monthKey();
   try {
     await billing.generateMonthlyInvoice(memberId, month);
   } catch (e) {

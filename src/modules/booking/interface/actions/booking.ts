@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getSessionMemberId } from "@/lib/auth-guards";
+import { getSessionMemberId, adminGuardError } from "@/lib/auth-guards";
 import * as booking from "@/modules/booking/application/booking-app";
 import { dispatchOutboxEvents } from "@/shared/outbox";
 // 注册事件订阅者（Access 发通行证 / Notification 发通知 / Billing 记账）
@@ -109,11 +109,13 @@ export async function markDeskNoShowAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  const memberId = await getSessionMemberId();
-  if (!memberId) return { error: "请先登录" };
+  // 爽约标记会释放资源并影响他人预订，只允许管理员触发
+  const authError = await adminGuardError();
+  if (authError) return { error: authError };
+
   const id = String(formData.get("id") ?? "");
   try {
-    await booking.markDeskNoShow(id);
+    await booking.markDeskNoShow(id, { isAdmin: true });
   } catch (e) {
     return { error: e instanceof Error ? e.message : "操作失败" };
   }

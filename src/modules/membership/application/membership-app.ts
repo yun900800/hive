@@ -9,6 +9,7 @@ import {
   outboxEvents,
 } from "@/lib/db/schema";
 import { createEvent } from "@/shared/events";
+import { addMonthsInBusinessTz } from "@/shared/clock";
 import { calculatePlanDiff, classifyPlanChange } from "../domain/subscription";
 import type { MemberTier, PlanType, SubscriptionStatus } from "../domain/types";
 
@@ -138,11 +139,8 @@ export async function subscribePlan(
 
   const now = new Date();
   const start = now;
-  const end = new Date(
-    now.getFullYear(),
-    now.getMonth() + 1,
-    now.getDate()
-  );
+  // 业务时区（+08:00）的一个月后，不能依赖进程本地时区
+  const end = addMonthsInBusinessTz(now, 1);
 
   const result = await db.transaction(async (tx) => {
     const sub = await tx
@@ -221,11 +219,7 @@ export async function changeSubscription(
   const changeType = classifyPlanChange(activeSub.monthlyFeeCents, plan.monthlyFeeCents);
 
   const now = new Date();
-  const end = new Date(
-    now.getFullYear(),
-    now.getMonth() + 1,
-    now.getDate()
-  );
+  const end = addMonthsInBusinessTz(now, 1);
 
   const result = await db.transaction(async (tx) => {
     // 旧订阅 → CANCELLED

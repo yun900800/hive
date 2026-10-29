@@ -54,7 +54,9 @@ export async function adminDispatchOutboxAction(
   try {
     await requireAdmin();
     const result = await dispatchOutboxEvents();
-    return { success: `已处理 ${result.processed} 个事件（跳过 ${result.skipped}，失败 ${result.failed}）` };
+    return {
+      success: `已处理 ${result.processed} 个事件（跳过 ${result.skipped}，重试 ${result.failed}，延迟 ${result.deferred}，死信 ${result.dead}）`,
+    };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "分发失败" };
   }

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth-guards";
@@ -54,7 +54,7 @@ export async function setMemberRoleAction(
 
     await db
       .update(users)
-      .set({ role, updatedAt: new Date() })
+      .set({ role, updatedAt: new Date(), sessionVersion: sql`${users.sessionVersion} + 1` })
       .where(eq(users.id, user.id))
       .run();
   } catch (e) {

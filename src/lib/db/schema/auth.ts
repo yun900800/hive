@@ -18,6 +18,10 @@ export const users = sqliteTable("user", {
   passwordHash: text("passwordHash"),
   role: text("role", { enum: ["MEMBER", "ADMIN"] }).default("MEMBER").notNull(),
   memberId: text("memberId"),
+  // Bumped whenever role/memberId changes. JWTs carry the value they were issued
+  // with; a mismatch invalidates the session so demotions take effect immediately
+  // instead of waiting for the token to expire.
+  sessionVersion: integer("sessionVersion").default(0).notNull(),
   createdAt: integer("createdAt", { mode: "timestamp_ms" })
     .$defaultFn(() => new Date()),
   updatedAt: integer("updatedAt", { mode: "timestamp_ms" })

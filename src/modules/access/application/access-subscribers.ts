@@ -3,6 +3,7 @@
  */
 
 import { registerEventHandler } from "@/shared/events";
+import { endOfDay } from "@/shared/clock";
 import { createGatePass, revokeGatePassByBooking } from "./access-app";
 
 export function registerAccessSubscribers(): void {
@@ -45,11 +46,4 @@ export function registerAccessSubscribers(): void {
     const p = payload as { sessionId: string };
     await revokeGatePassByBooking(p.sessionId);
   });
-}
-
-/** 当天 23:59:59.999（灵活区按日通行） */
-function endOfDay(d: Date): Date {
-  const end = new Date(d);
-  end.setHours(23, 59, 59, 999);
-  return end;
 }

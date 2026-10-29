@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   deskBookings,
@@ -8,6 +8,7 @@ import {
   desks,
   meetingRooms,
   flexZones,
+  resourceLocks,
 } from "@/lib/db/schema";
 import { TimeSlot } from "@/shared";
 import { createEvent } from "@/shared/events";
@@ -26,6 +27,8 @@ import type { DeskBooking, RoomBooking, FlexSession } from "../domain/types";
 
 // ---------- 通用工具 ----------
 
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 function requireOwner<T extends { memberId: string }>(
   row: T | undefined,
   memberId: string
@@ -37,6 +40,62 @@ function requireOwner<T extends { memberId: string }>(
 
 function asSlot(startTime: Date, endTime: Date): TimeSlot {
   return TimeSlot.of(startTime, endTime);
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /UNIQUE constraint failed|SQLITE_CONSTRAINT_UNIQUE/i.test(message);
+}
+
+function isBusy(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /SQLITE_BUSY|database is locked/i.test(message);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withBusyRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!isBusy(error)) throw error;
+      lastError = error;
+      await sleep(20 * 2 ** attempt);
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * 在资源级串行化一个预订用例。
+ *
+ * 为什么不能只靠 `SELECT 冲突 → INSERT`：两者不在同一事务时，并发请求会各自
+ * 读到"无冲突"然后都写入，同一工位/会议室被双卖。
+ * 这里先对 resource_lock 做一次 upsert —— 它是写操作，会强制本事务拿到写锁，
+ * 同一资源的并发事务因此被数据库串行化；锁内再校验冲突才是安全的。
+ */
+async function withResourceLock<T>(
+  resourceId: string,
+  fn: (tx: DbTransaction) => Promise<T>
+): Promise<T> {
+  return withBusyRetry(() =>
+    db.transaction(async (tx) => {
+      await tx
+        .insert(resourceLocks)
+        .values({ resourceId })
+        .onConflictDoUpdate({
+          target: resourceLocks.resourceId,
+          set: { version: sql`${resourceLocks.version} + 1` },
+        })
+        .run();
+
+      return fn(tx);
+    })
+  );
 }
 
 // ---------- 订阅资格 ----------
@@ -77,16 +136,6 @@ export async function createDeskBooking(
   if (!desk) throw new Error("工位不存在");
   if (desk.status !== "AVAILABLE") throw new Error("工位当前不可预订");
 
-  // 可用性冲突校验
-  const conflicts = await db
-    .select({ startTime: deskBookings.startTime, endTime: deskBookings.endTime, status: deskBookings.status })
-    .from(deskBookings)
-    .where(eq(deskBookings.deskId, input.deskId))
-    .all();
-  if (hasOverlapWithExisting(slot, conflicts)) {
-    throw new Error("该工位在所选时段已被预订，请更换时间");
-  }
-
   const now = new Date();
   const created: DeskBooking = {
     id: crypto.randomUUID(),
@@ -121,7 +170,21 @@ export async function createDeskBooking(
     },
   });
 
-  await db.transaction(async (tx) => {
+  return withResourceLock(input.deskId, async (tx) => {
+    // 冲突校验与插入必须在同一把资源锁内，否则并发下会双卖
+    const conflicts = await tx
+      .select({
+        startTime: deskBookings.startTime,
+        endTime: deskBookings.endTime,
+        status: deskBookings.status,
+      })
+      .from(deskBookings)
+      .where(eq(deskBookings.deskId, input.deskId))
+      .all();
+    if (hasOverlapWithExisting(slot, conflicts)) {
+      throw new Error("该工位在所选时段已被预订，请更换时间");
+    }
+
     await tx
       .insert(deskBookings)
       .values({
@@ -136,9 +199,9 @@ export async function createDeskBooking(
       })
       .run();
     await appendOutboxEvents(tx, [event]);
-  });
 
-  return row;
+    return row;
+  });
 }
 
 export async function cancelDeskBooking(
@@ -240,9 +303,21 @@ export async function checkOutDeskBooking(
   return next;
 }
 
-export async function markDeskNoShow(bookingId: string): Promise<DeskBooking> {
+export type NoShowActor = {
+  memberId?: string | null;
+  isAdmin: boolean;
+};
+
+/** 爽约标记：管理员可直接操作；会员只能标记自己的预订 */
+export async function markDeskNoShow(
+  bookingId: string,
+  actor: NoShowActor
+): Promise<DeskBooking> {
   const row = await db.select().from(deskBookings).where(eq(deskBookings.id, bookingId)).get();
   if (!row) throw new Error("记录不存在");
+  if (!actor.isAdmin && row.memberId !== actor.memberId) {
+    throw new Error("无权操作他人的预订");
+  }
   const result = deskSM.markDeskNoShow(row as DeskBooking, new Date());
   if (!result.ok) throw new Error(result.error);
   const next = result.value;
@@ -291,15 +366,6 @@ export async function createRoomBooking(
   if (!room) throw new Error("会议室不存在");
   if (room.status !== "AVAILABLE") throw new Error("会议室当前不可预订");
 
-  const conflicts = await db
-    .select({ startTime: roomBookings.startTime, endTime: roomBookings.endTime, status: roomBookings.status })
-    .from(roomBookings)
-    .where(eq(roomBookings.roomId, input.roomId))
-    .all();
-  if (hasOverlapWithExisting(slot, conflicts)) {
-    throw new Error("该会议室在所选时段已被预订，请更换时间");
-  }
-
   const now = new Date();
   const created: RoomBooking = {
     id: crypto.randomUUID(),
@@ -334,7 +400,20 @@ export async function createRoomBooking(
     },
   });
 
-  await db.transaction(async (tx) => {
+  return withResourceLock(input.roomId, async (tx) => {
+    const conflicts = await tx
+      .select({
+        startTime: roomBookings.startTime,
+        endTime: roomBookings.endTime,
+        status: roomBookings.status,
+      })
+      .from(roomBookings)
+      .where(eq(roomBookings.roomId, input.roomId))
+      .all();
+    if (hasOverlapWithExisting(slot, conflicts)) {
+      throw new Error("该会议室在所选时段已被预订，请更换时间");
+    }
+
     await tx.insert(roomBookings).values({
       id: row.id,
       memberId: row.memberId,
@@ -347,9 +426,9 @@ export async function createRoomBooking(
       updatedAt: row.updatedAt,
     }).run();
     await appendOutboxEvents(tx, [event]);
-  });
 
-  return row;
+    return row;
+  });
 }
 
 export async function startRoomBooking(
@@ -511,21 +590,29 @@ export async function startFlexSession(
     },
   });
 
-  await db.transaction(async (tx) => {
-    await tx
-      .insert(flexSessions)
-      .values({
-        id: session.id,
-        memberId: session.memberId,
-        zoneId: session.zoneId,
-        checkInAt: session.checkInAt,
-        status: session.status,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-      })
-      .run();
-    await appendOutboxEvents(tx, [event]);
-  });
+  try {
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(flexSessions)
+        .values({
+          id: session.id,
+          memberId: session.memberId,
+          zoneId: session.zoneId,
+          checkInAt: session.checkInAt,
+          status: session.status,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+        })
+        .run();
+      await appendOutboxEvents(tx, [event]);
+    });
+  } catch (error) {
+    // 并发下前置查询会同时通过，正确性由 flex_session_active_member_idx 保证
+    if (isUniqueViolation(error)) {
+      throw new Error("你已有在场会话，请先离场");
+    }
+    throw error;
+  }
 
   return session;
 }

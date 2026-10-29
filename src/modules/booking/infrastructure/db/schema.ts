@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 import {
   DESK_BOOKING_STATUSES,
   ROOM_BOOKING_STATUSES,
@@ -93,8 +94,26 @@ export const flexSessions = sqliteTable(
     index("flex_session_member_idx").on(table.memberId),
     index("flex_session_zone_idx").on(table.zoneId),
     index("flex_session_status_idx").on(table.status),
+    // 一人同一时刻只能有一个在场会话。应用层的 check-then-act 挡不住并发，
+    // 正确性交给这个部分唯一索引（与 subscription_active_member_idx 同一手法）。
+    uniqueIndex("flex_session_active_member_idx")
+      .on(table.memberId)
+      .where(sql`${table.status} = 'ACTIVE'`),
   ]
 );
+
+/**
+ * resource_lock — 预订写入的串行化锚点。
+ *
+ * SQLite 没有行锁，`SELECT 冲突 → INSERT` 在并发下会双卖同一资源。
+ * 预订事务先对本表做一次 upsert（强制成为写事务），同一资源的并发请求
+ * 因此被串行化，锁内再校验时段冲突。
+ * 迁移到 PostgreSQL 时可替换为 `SELECT ... FOR UPDATE` + EXCLUDE 约束。
+ */
+export const resourceLocks = sqliteTable("resource_lock", {
+  resourceId: text("resourceId").primaryKey(),
+  version: integer("version").default(0).notNull(),
+});
 
 export type DeskBookingRow = typeof deskBookings.$inferSelect;
 export type NewDeskBookingRow = typeof deskBookings.$inferInsert;
@@ -102,3 +121,4 @@ export type RoomBookingRow = typeof roomBookings.$inferSelect;
 export type NewRoomBookingRow = typeof roomBookings.$inferInsert;
 export type FlexSessionRow = typeof flexSessions.$inferSelect;
 export type NewFlexSessionRow = typeof flexSessions.$inferInsert;
+export type ResourceLockRow = typeof resourceLocks.$inferSelect;
