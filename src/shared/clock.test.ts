@@ -5,6 +5,7 @@ import {
   endOfDay,
   monthKey,
   monthRange,
+  parseBusinessDateTime,
   startOfDay,
 } from "./clock";
 
@@ -47,5 +48,20 @@ describe("clock — 业务时区边界", () => {
     // 2026-01-15T02:00:00Z = 2026-01-15 10:00 +08:00
     const next = addMonthsInBusinessTz(new Date("2026-01-15T02:00:00Z"), 1);
     expect(next.toISOString()).toBe("2026-02-15T02:00:00.000Z");
+  });
+
+  it("parseBusinessDateTime 把无时区输入解释为北京时间", () => {
+    expect(parseBusinessDateTime("2026-10-31T13:00")?.toISOString()).toBe(
+      "2026-10-31T05:00:00.000Z"
+    );
+    expect(parseBusinessDateTime("2026-10-31T13:00:30")?.toISOString()).toBe(
+      "2026-10-31T05:00:30.000Z"
+    );
+  });
+
+  it("parseBusinessDateTime 拒绝非法输入", () => {
+    expect(parseBusinessDateTime("2026-10-31 13:00")).toBeNull();
+    expect(parseBusinessDateTime("2026-13-31T13:00")).toBeNull();
+    expect(parseBusinessDateTime("")).toBeNull();
   });
 });

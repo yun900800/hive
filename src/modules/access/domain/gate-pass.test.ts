@@ -55,9 +55,14 @@ describe("canGrantAccess", () => {
     expect(r.result).toBe("DENIED_EXPIRED");
   });
 
-  it("时段开始前 → DENIED_EXPIRED", () => {
+  it("时段开始前 → DENIED_NOT_STARTED（不是过期）", () => {
     const r = canGrantAccess(pass, new Date(2026, 7, 20, 8, 0));
-    expect(r.result).toBe("DENIED_EXPIRED");
+    expect(r.result).toBe("DENIED_NOT_STARTED");
+  });
+
+  it("时段开始前一分钟 → DENIED_NOT_STARTED", () => {
+    const r = canGrantAccess(pass, new Date(2026, 7, 20, 8, 59));
+    expect(r.result).toBe("DENIED_NOT_STARTED");
   });
 
   it("边界时刻：正好 validFrom（9:00）可通行", () => {

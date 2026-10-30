@@ -110,7 +110,11 @@ export default async function AccessPage() {
           description="输入或选择已有通行证编码进行闸机核销。"
           bodyClassName="pt-4"
         >
-          <ScanForm activePasses={passes.filter((p) => p.status === "ACTIVE").map((p) => p.code)} />
+          <ScanForm
+            activePasses={passes
+              .filter((p) => p.status === "ACTIVE")
+              .map((p) => ({ code: p.code, validFrom: p.validFrom, validTo: p.validTo }))}
+          />
         </SectionCard>
       </div>
 

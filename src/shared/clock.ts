@@ -82,3 +82,15 @@ export function addMonthsInBusinessTz(date: Date, months: number): Date {
   );
   return new Date(shifted - BUSINESS_TZ_OFFSET_MS);
 }
+
+/**
+ * 解析 `<input type="datetime-local">` 的值（不带时区），按业务时区（+08:00）解释。
+ * 浏览器提交的是"墙上时间"，若直接 `new Date(value)`，在 UTC 服务器上会差 8 小时。
+ * @example parseBusinessDateTime("2026-10-31T13:00") // 2026-10-31T05:00:00.000Z
+ */
+export function parseBusinessDateTime(value: string): Date | null {
+  const matched = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(:\d{2})?$/.exec(value.trim());
+  if (!matched) return null;
+  const date = new Date(`${matched[1]}T${matched[2]}${matched[3] ?? ":00"}+08:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}

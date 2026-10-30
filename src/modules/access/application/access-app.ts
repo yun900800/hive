@@ -106,25 +106,44 @@ export async function expireOldPasses(now = new Date()): Promise<number> {
 
 // ---------- 模拟扫码 ----------
 
-type ScanInput = { passCode: string; gateName: string; direction: AccessDirection };
+export type ScanResult = {
+  granted: boolean;
+  result: AccessResult;
+  gatePass?: GatePass;
+};
 
-/** 模拟扫码进入/离开：校验通行证 → 写通行日志 */
-export async function scan(passCode: string, gateName: string, direction: AccessDirection) {
+/**
+ * 模拟扫码进入/离开：校验通行证 → 写通行日志。
+ * `at` 只用于模拟：可指定「扫码时刻」来测试生效前 / 时段内 / 已过期，默认当前时间。
+ */
+export async function scan(
+  passCode: string,
+  gateName: string,
+  direction: AccessDirection,
+  at: Date = new Date()
+): Promise<ScanResult> {
+  const accessTime = Number.isNaN(at.getTime()) ? new Date() : at;
   const pass = await db.select().from(gatePasses).where(eq(gatePasses.code, passCode)).get();
   if (!pass) {
-    await appendLog({ gatePassId: "", memberId: "", gateName, direction, result: "DENIED_INVALID", accessTime: new Date() });
-    return { granted: false, result: "DENIED_INVALID" as AccessResult };
+    await appendLog({
+      gatePassId: "",
+      memberId: "",
+      gateName,
+      direction,
+      result: "DENIED_INVALID",
+      accessTime,
+    });
+    return { granted: false, result: "DENIED_INVALID" };
   }
 
-  const now = new Date();
-  const verdict = canGrantAccess(pass as GatePass, now);
+  const verdict = canGrantAccess(pass as GatePass, accessTime);
   await appendLog({
     gatePassId: pass.id,
     memberId: pass.memberId,
     gateName,
     direction,
     result: verdict.result,
-    accessTime: now,
+    accessTime,
   });
 
   if (verdict.granted && direction === "ENTRY") {

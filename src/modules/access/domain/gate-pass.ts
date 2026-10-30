@@ -20,7 +20,11 @@ export function canGrantAccess(
     return { granted: false, result: "DENIED_NO_BOOKING" };
   }
   const t = accessTime.getTime();
-  if (t < pass.validFrom.getTime() || t > pass.validTo.getTime()) {
+  // 「未到生效时间」与「已过期」必须区分：前者是来得太早，后者是错过时段。
+  if (t < pass.validFrom.getTime()) {
+    return { granted: false, result: "DENIED_NOT_STARTED" };
+  }
+  if (t > pass.validTo.getTime()) {
     return { granted: false, result: "DENIED_EXPIRED" };
   }
   return { granted: true, result: "GRANTED" };

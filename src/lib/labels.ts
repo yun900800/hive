@@ -70,6 +70,7 @@ const MAPS: Record<LabelKind, Record<string, Meta>> = {
   },
   accessResult: {
     GRANTED: { label: "已放行", tone: "success" },
+    DENIED_NOT_STARTED: { label: "拒绝 · 未到生效时间", tone: "warning" },
     DENIED_EXPIRED: { label: "拒绝 · 已过期", tone: "danger" },
     DENIED_NO_BOOKING: { label: "拒绝 · 无有效通行证", tone: "danger" },
     DENIED_REVOKED: { label: "拒绝 · 已撤销", tone: "danger" },

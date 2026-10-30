@@ -16,6 +16,7 @@ export type AccessDirection = (typeof ACCESS_DIRECTIONS)[number];
 /** AccessResult — 通行结果 */
 export const ACCESS_RESULTS = [
   "GRANTED", // 通行允许
+  "DENIED_NOT_STARTED", // 拒绝 - 未到生效时间（预订尚未开始）
   "DENIED_EXPIRED", // 拒绝 - 通行证已过期
   "DENIED_NO_BOOKING", // 拒绝 - 无有效通行证
   "DENIED_REVOKED", // 拒绝 - 通行证已撤销
