@@ -37,12 +37,12 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
 | M2 | 数据访问规模 | P1 | 8 | 0 | ⬜ 未开始 |
 | M3 | 模块边界与可维护性 | P2 | 9 | 0 | ⬜ 未开始 |
 | M4 | 交付质量与可观测性 | P2/P3 | 6 | 0 | ⬜ 未开始 |
-| M5 | 业务闭环与运维 | P1/P3 | 7 | 0 | ⬜ 未开始 |
-| **合计** |  |  | **50** | **11** | 🟨 进行中 |
+| M5 | 业务闭环与运维 | P1/P3 | 8 | 3 | 🟨 进行中 |
+| **合计** |  |  | **51** | **14** | 🟨 进行中 |
 
 状态图例：⬜ 未开始 / 🟨 进行中 / ✅ 完成
 
-> 说明：M0-11（生产账号与密钥轮换）经项目方确认**暂缓**，仍计入未完成数，故合计为 11/50；M0 其余 11 项已上线。
+> 说明：M0-11（生产账号与密钥轮换）经项目方确认**暂缓**，仍计入未完成数；合计 14/51 = M0 已完成 11 项 + M5 已完成 3 项（M5-1 / M5-2 / M5-8）。
 
 ## 问题索引（严重度 → 里程碑）
 
@@ -60,7 +60,7 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
 | P1-3 | 迟到消费明细永久不入账 | P1 | M1 |
 | P1-4 | 管理端全表加载 + 内存分页；`listMyInvoices` 全表明细 | P1 | M2 |
 | P1-5 | 资源可用性 N+1；出账 O(N) 且挂在页面访问上 | P1 | M2 |
-| P1-6 | NO_SHOW 与通行证过期无调度 | P1 | M5 |
+| P1-6 | NO_SHOW 与通行证过期无调度（2026-10-31 已解决） | P1 | M5 |
 | P2-1 | bootstrap 靠手动 import，漏写即静默丢事件 | P2 | M3 |
 | P2-2 | 跨上下文直接查表，破坏 ACL/OHS | P2 | M3 |
 | P2-3 | `as unknown as` 强转，无 row→domain 映射 | P2 | M3 |
@@ -390,14 +390,14 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
 
 ---
 
-## M5 — 业务闭环与运维 ⬜
+## M5 — 业务闭环与运维 🟨
 
 **目标**：把「设计文档写了但没人执行」的规则真正跑起来，并补齐运维底线。
 
 ### 任务
 
-- [ ] **M5-1 NO_SHOW 自动清扫**（每 5 分钟，预订开始 15 分钟后未签到 → NO_SHOW + 释放资源 + 通知）
-- [ ] **M5-2 通行证过期任务**（每小时执行 `expireOldPasses`）
+- [x] **M5-1 NO_SHOW 自动清扫**（每 5 分钟，预订开始 15 分钟后未签到 → NO_SHOW + 释放资源；会员通知未接入）
+- [x] **M5-2 通行证过期任务**（随统一巡检入口每 5 分钟执行 `expireOldPasses`；原计划每小时）
 - [ ] **M5-3 Outbox 定时冲刷**（每分钟；Vercel Cron 优先，GitHub Actions 仅兜底）
 - [ ] **M5-4 调度可靠性**
   - 任务执行记录表（job、lastRun、result、duration）
@@ -409,6 +409,11 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
   - 登录/注册（按 IP+邮箱）、扫码、出账接口
 - [ ] **M5-7 README 重写**
   - 架构图、模块边界、事件目录、常用命令、环境变量、运维手册、演示账号说明
+- [x] **M5-8 到期自动签退与自动完成**（2026-10-31 新增，原始计划遗漏）
+  - 工位 `CHECKED_IN` 超过「结束 + 15 分钟」→ `CHECKED_OUT`，`checkedOutAt` 记为 `endTime`
+  - 灵活区 `ACTIVE` 跨天未离场 → `COMPLETED`，`checkOutAt` 记为入场当日 `23:59:59`
+  - 会议室 `IN_PROGRESS` 超过「结束 + 15 分钟」→ `COMPLETED`，`completedAt` 记为 `endTime`（不产生超时费）
+  - 与 M5-1 / M5-2 共用 `GET/POST /api/maintenance/reconcile`，幂等、可重复执行
 
 ### 验收
 
@@ -416,10 +421,55 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
 - 连续 7 天无 DEAD 事件、无调度漏跑
 - 新成员按 README 30 分钟内可本地跑通
 
+### 实现说明：统一逾期巡检（2026-10-31）
+
+**为什么合并成一个入口**：四类「忘记操作」的成因相同——记录没有终态、系统没有调度。拆成四个 cron 会重复鉴权、重复排障，失败点更多。因此统一为 `GET /api/maintenance/reconcile`，一次循环收尾全部过期记录；`POST` 同路径供管理员手动触发。
+
+| 对象 | 触发条件 | 终态 | 时间口径 |
+|---|---|---|---|
+| 工位 `CHECKED_IN` | `now > endTime + 15min` | `CHECKED_OUT` | `checkedOutAt = endTime` |
+| 工位 `CONFIRMED` | `now > startTime + 15min` | `NO_SHOW` | — |
+| 灵活区 `ACTIVE` | 入场日期早于今天（业务时区） | `COMPLETED` | `checkOutAt = 入场当日 23:59:59.999` |
+| 会议室 `IN_PROGRESS` | `now > endTime + 15min` | `COMPLETED` | `completedAt = endTime` |
+| 通行证 `ACTIVE` | `now > validTo` | `EXPIRED` | — |
+
+**关键设计（改前 / 改后）**：
+
+1. **签退与完成时间记业务时间，不记巡检时间**。
+   改前：`CHECKED_IN` 只能人工签退，忘点就永远「使用中」；改后：`checkedOutAt = endTime`，cron 晚 5 分钟不会让使用时长变长，也不会伪造「今天签退」。
+2. **幂等靠条件 UPDATE，不靠应用层锁**。
+   `UPDATE ... WHERE id = ? AND status = '原状态' RETURNING`，命中才写 outbox；会员手动签退与巡检并发时只有一方生效，不会重复计费。Vercel 多实例下内存锁无效，这一点与 M0-5/M0-6 保持一致。
+3. **事件契约不变**。
+   自动签退仍发 `booking.booking-checked-out`，payload 增加 `auto: true`；billing 订阅者不改。固定工位费率 `calculateDeskUsage()` 为 0（含在订阅内），因此不产生额外费用。
+4. **会议室自动完成不罚超时费**。
+   `completedAt = endTime`，`recordRoomOvertime` 计算的差值为 0；人工在宽限期内完成仍按实际时间计费。
+5. **灵活区按「当天有效」处理**。
+   与 `booking.flex-session-started` 发放的通行证 `validTo = endOfDay(checkInAt)` 对齐；只在跨天后收尾，避免把当天仍在场的人提前踢出。代价是忘记签退者按当日 23:59:59 计费（有月封顶兜底）。
+
+**调度**：
+
+- `.github/workflows/maintenance-reconcile.yml`，`*/5 * * * *`。GitHub Actions 免费版最小间隔 5 分钟；Vercel Hobby 无分钟级 Cron，与 M0 的 outbox/月度出账采用同一套方案。
+- 认证：`Authorization: Bearer ${{ secrets.CRON_SECRET }}`；管理员触发走 session 鉴权。
+- 漏跑无需补偿：下一轮全量扫描会自动补齐；本地可用 `npx tsx` 直接调用 `reconcileOverdueBookings()`。
+
+**已知边界**：
+
+- 未接入会员通知（「你已被自动签退」）——需新增事件类型 + notification 订阅者，本轮未做。
+- 无任务执行记录表，失败只能看 Actions 日志（M5-4 仍未完成）。
+- 巡检是单批全量，数据量大后需加 `limit` 分批（当前演示规模无影响）。
+- 自动完成/签退只覆盖工位、灵活区、会议室；房间预订「确认后未开始」没有 NO_SHOW 状态，暂不处理。
+
 ### 完成记录
 
+- 状态：⬜ M5 整体未完成（已完成 M5-1 / M5-2 / M5-8）
 - 日期：*(待填)*
 - Commit：*(待填)*
+- 已落地部分（2026-10-31）：
+  - `b230bc7`：工位自动签退 + 自动爽约 + 首个 `/api/booking/reconcile` 入口
+  - `21c62bb`：灵活区/会议室/通行证并入 `/api/maintenance/reconcile`，旧入口迁移
+  - 验证：`tsc` / `eslint` 通过；全量 26 个测试文件、200 个用例通过；`next build` 通过
+  - 本地真实库：首轮工位自动签退 `2` 条；并入统一入口后 `flexCompleted 1 / roomsCompleted 1 / passesExpired 10`；再跑一轮全部为 0（幂等）；灵活区签退时间确认为入场当日 23:59:59
+  - 生产：部署后手动 run 返回 `{"deskCheckedOut":0,"deskNoShow":1,"flexCompleted":0,"roomsCompleted":1,"passesExpired":2}`；随后定时任务每 5 分钟运行
 
 ---
 
@@ -443,7 +493,7 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
 ## 推荐执行顺序
 
 1. **M0**（必须整体完成后再上线新功能）
-2. **M1** → **M5-3/M5-1**（计费正确 + 调度跑起来，业务闭环才算通）
+2. **M1** → **M5-3/M5-4**（M5-1 / M5-2 / M5-8 已于 2026-10-31 落地，剩 outbox 冲刷频率与调度可观测性）
 3. **M2**（有真实数据量或性能反馈时提前）
 4. **M3**（在 M1/M2 改动稳定后进行，避免同时大改）
 5. **M4**（可与 M2/M3 并行，CI 越早接入收益越大）
