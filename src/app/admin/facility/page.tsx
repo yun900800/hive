@@ -11,6 +11,7 @@ import {
 import { formatYuan } from "@/lib/format";
 import { DeskForm } from "./desk-form";
 import { RoomForm } from "./room-form";
+import { FlexZoneForm } from "./flex-zone-form";
 import { DeleteButton } from "./delete-button";
 import {
   Tabs,
@@ -207,7 +208,9 @@ export default async function FacilityPage() {
         </TabsContent>
 
         {/* 灵活区 */}
-        <TabsContent value="zones">
+        <TabsContent value="zones" className="space-y-5">
+          <FlexZoneForm />
+
           <SectionCard
             title="灵活办公区"
             description={`共 ${zones.length} 个区域，会员到场后可签到计时。`}
@@ -217,7 +220,7 @@ export default async function FacilityPage() {
               <EmptyState
                 icon={Sparkles}
                 title="还没有灵活区"
-                description="灵活区需要在种子数据或后续版本中配置。"
+                description="使用上方表单添加第一个灵活区，会员即可签到使用。"
                 className="border-0 bg-transparent"
               />
             ) : (
@@ -226,8 +229,11 @@ export default async function FacilityPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>名称</TableHead>
+                      <TableHead className="hidden sm:table-cell">楼层</TableHead>
                       <TableHead>容量</TableHead>
+                      <TableHead className="hidden md:table-cell">开放时间</TableHead>
                       <TableHead>状态</TableHead>
+                      <TableHead className="w-20 text-right">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -236,11 +242,24 @@ export default async function FacilityPage() {
                         <TableCell className="font-medium">
                           {zone.name}
                         </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          {zone.floor} 层
+                        </TableCell>
                         <TableCell className="tabular-nums">
                           {zone.capacity} 人
                         </TableCell>
+                        <TableCell className="hidden tabular-nums text-muted-foreground md:table-cell">
+                          {zone.openingTime}–{zone.closingTime}
+                        </TableCell>
                         <TableCell>
                           <StatusBadge kind="zoneStatus" value={zone.status} />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DeleteButton
+                            kind="zone"
+                            id={zone.id}
+                            label={zone.name}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}

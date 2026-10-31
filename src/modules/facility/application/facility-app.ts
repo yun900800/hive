@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { desks, meetingRooms, flexZones, gates } from "@/lib/db/schema";
+import { desks, meetingRooms, flexZones, gates, flexSessions } from "@/lib/db/schema";
 import { buildDeskCode, parseDeskCode } from "../domain/desk-code";
 import type { DeskStatus, RoomStatus, RoomType, DeskType } from "../domain/types";
 
@@ -131,11 +131,53 @@ export async function listMeetingRooms() {
   }));
 }
 
-// ---------- 灵活区 / 闸机（本期只读展示） ----------
+// ---------- 灵活区 ----------
+
+export type CreateFlexZoneInput = {
+  name: string;
+  floor: string;
+  capacity: number;
+  openingTime: string;
+  closingTime: string;
+};
+
+export async function createFlexZone(input: CreateFlexZoneInput) {
+  return db
+    .insert(flexZones)
+    .values({
+      name: input.name,
+      floor: input.floor,
+      capacity: input.capacity,
+      openingTime: input.openingTime,
+      closingTime: input.closingTime,
+      status: "OPEN",
+    })
+    .returning()
+    .get();
+}
 
 export async function listFlexZones() {
   return db.select().from(flexZones).all();
 }
+
+/** 该区域是否有会员正在使用（跨聚合校验，供删除前检查） */
+export async function hasActiveFlexSession(zoneId: string): Promise<boolean> {
+  const row = await db
+    .select({ id: flexSessions.id })
+    .from(flexSessions)
+    .where(and(eq(flexSessions.zoneId, zoneId), eq(flexSessions.status, "ACTIVE")))
+    .get();
+  return Boolean(row);
+}
+
+export async function deleteFlexZone(id: string) {
+  if (await hasActiveFlexSession(id)) {
+    throw new Error("该灵活区还有会员在使用，请先办理离场");
+  }
+  return db.delete(flexZones).where(eq(flexZones.id, id)).run();
+}
+
+// ---------- 闸机（本期只读展示） ----------
 
 export async function listGates() {
   return db.select().from(gates).all();

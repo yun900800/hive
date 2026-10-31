@@ -8,21 +8,30 @@ import { useActionWithToast } from "@/lib/toast";
 import {
   deleteDeskAction,
   deleteMeetingRoomAction,
+  deleteFlexZoneAction,
   type ActionState,
 } from "@/modules/facility/interface/actions/facility";
 
 const initialState: ActionState = {};
+
+const deleteHandlers = {
+  desk: deleteDeskAction,
+  room: deleteMeetingRoomAction,
+  zone: deleteFlexZoneAction,
+};
+
+export type DeleteKind = keyof typeof deleteHandlers;
 
 export function DeleteButton({
   kind,
   id,
   label,
 }: {
-  kind: "desk" | "room";
+  kind: DeleteKind;
   id: string;
   label: string;
 }) {
-  const handler = kind === "desk" ? deleteDeskAction : deleteMeetingRoomAction;
+  const handler = deleteHandlers[kind];
   const actionWithToast = useActionWithToast(handler, {
     successMessage: `已删除「${label}」`,
     id: `facility-delete-${kind}-${id}`,

@@ -10,6 +10,8 @@ import {
   createMeetingRoom,
   updateMeetingRoom,
   deleteMeetingRoom,
+  createFlexZone,
+  deleteFlexZone,
 } from "@/modules/facility/application/facility-app";
 
 export type ActionState = { error?: string };
@@ -169,6 +171,65 @@ export async function deleteMeetingRoomAction(
   const id = String(formData.get("id") ?? "");
   try {
     await deleteMeetingRoom(id);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "删除失败" };
+  }
+  revalidatePath("/admin/facility");
+  return {};
+}
+
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const flexZoneSchema = z
+  .object({
+    name: z.string().trim().min(1, "请填写区域名称").max(50),
+    floor: z.string().trim().regex(/^[A-Za-z]$/, "楼层需为单个字母，如 A"),
+    capacity: z.coerce.number().int().min(1, "容量至少 1 人").max(500),
+    openingTime: z.string().regex(TIME_PATTERN, "开放时间格式应为 HH:MM"),
+    closingTime: z.string().regex(TIME_PATTERN, "关闭时间格式应为 HH:MM"),
+  })
+  .refine((value) => value.openingTime < value.closingTime, {
+    message: "关闭时间需晚于开放时间",
+    path: ["closingTime"],
+  });
+
+export async function createFlexZoneAction(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const authError = await guardAdmin();
+  if (authError) return { error: authError };
+
+  const parsed = flexZoneSchema.safeParse({
+    name: formData.get("name"),
+    floor: formData.get("floor"),
+    capacity: formData.get("capacity"),
+    openingTime: formData.get("openingTime"),
+    closingTime: formData.get("closingTime"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "灵活区信息不合法" };
+  }
+
+  try {
+    await createFlexZone(parsed.data);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "创建失败" };
+  }
+  revalidatePath("/admin/facility");
+  return {};
+}
+
+export async function deleteFlexZoneAction(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const authError = await guardAdmin();
+  if (authError) return { error: authError };
+
+  const id = String(formData.get("id") ?? "");
+  try {
+    await deleteFlexZone(id);
   } catch (e) {
     return { error: e instanceof Error ? e.message : "删除失败" };
   }
