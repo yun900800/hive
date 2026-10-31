@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, lte } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   deskBookings,
@@ -18,6 +18,7 @@ import * as deskSM from "../domain/desk-booking";
 import * as roomSM from "../domain/room-booking";
 import * as flexSM from "../domain/flex-session";
 import { hasOverlapWithExisting } from "../domain/availability";
+import { AUTO_CHECK_OUT_GRACE_MS, NO_SHOW_GRACE_MS } from "../domain/policies";
 import type { DeskBooking, RoomBooking, FlexSession } from "../domain/types";
 
 /**
@@ -328,6 +329,102 @@ export async function markDeskNoShow(
     .where(eq(deskBookings.id, bookingId))
     .run();
   return next;
+}
+
+// ---------- 逾期巡检（到期自动签退 / 自动爽约） ----------
+
+export type ReconcileResult = {
+  /** 本轮自动签退的预订数 */
+  checkedOut: number;
+  /** 本轮判定为爽约的预订数 */
+  noShow: number;
+};
+
+/**
+ * 巡检逾期预订（幂等，可重复执行）：
+ * - CHECKED_IN 且已过「结束 + 宽限期」→ CHECKED_OUT，checkedOutAt 记为 endTime；
+ * - CONFIRMED 且已过「开始 + 15 分钟」→ NO_SHOW。
+ *
+ * 由 `/api/booking/reconcile` 定时驱动；条件 UPDATE 保证与会员手动签退并发时
+ * 只有一方生效，不会重复发事件。
+ */
+export async function reconcileOverdueBookings(
+  now = new Date()
+): Promise<ReconcileResult> {
+  const checkedOut = await autoCheckOutOverdue(now);
+  const noShow = await markOverdueNoShows(now);
+  return { checkedOut, noShow };
+}
+
+async function autoCheckOutOverdue(now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - AUTO_CHECK_OUT_GRACE_MS);
+  const rows = await db
+    .select()
+    .from(deskBookings)
+    .where(and(eq(deskBookings.status, "CHECKED_IN"), lte(deskBookings.endTime, cutoff)))
+    .all();
+
+  let count = 0;
+  for (const row of rows) {
+    const verdict = deskSM.autoCheckOut(row as DeskBooking, now);
+    if (!verdict.ok) continue;
+    const next = verdict.value;
+    const checkOutTime = next.checkedOutAt ?? next.endTime;
+    const event = createEvent({
+      eventType: "booking.booking-checked-out",
+      aggregateId: next.id,
+      aggregateType: "DeskBooking",
+      payload: {
+        bookingId: next.id,
+        memberId: next.memberId,
+        checkOutTime: checkOutTime.toISOString(),
+        actualDurationMs:
+          checkOutTime.getTime() - (next.checkedInAt ?? next.startTime).getTime(),
+        auto: true,
+      },
+    });
+
+    const applied = await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(deskBookings)
+        .set({
+          status: next.status,
+          checkedOutAt: next.checkedOutAt,
+          updatedAt: next.updatedAt,
+        })
+        .where(and(eq(deskBookings.id, next.id), eq(deskBookings.status, "CHECKED_IN")))
+        .returning({ id: deskBookings.id })
+        .all();
+      if (updated.length === 0) return false; // 已被会员手动签退
+      await appendOutboxEvents(tx, [event]);
+      return true;
+    });
+    if (applied) count += 1;
+  }
+  return count;
+}
+
+async function markOverdueNoShows(now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - NO_SHOW_GRACE_MS);
+  const rows = await db
+    .select()
+    .from(deskBookings)
+    .where(and(eq(deskBookings.status, "CONFIRMED"), lte(deskBookings.startTime, cutoff)))
+    .all();
+
+  let count = 0;
+  for (const row of rows) {
+    const verdict = deskSM.markDeskNoShow(row as DeskBooking, now);
+    if (!verdict.ok) continue;
+    const updated = await db
+      .update(deskBookings)
+      .set({ status: "NO_SHOW", updatedAt: verdict.value.updatedAt })
+      .where(and(eq(deskBookings.id, row.id), eq(deskBookings.status, "CONFIRMED")))
+      .returning({ id: deskBookings.id })
+      .all();
+    if (updated.length > 0) count += 1;
+  }
+  return count;
 }
 
 export async function listMyDeskBookings(memberId: string): Promise<DeskBooking[]> {

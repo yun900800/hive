@@ -1,5 +1,5 @@
 import type { DeskBooking, DeskBookingStatus } from "./types";
-import { canCancel, isNoShow } from "./policies";
+import { AUTO_CHECK_OUT_GRACE_MS, canCancel, isNoShow } from "./policies";
 
 /**
  * DeskBooking state machine — 工位预订生命周期（纯函数）。
@@ -66,6 +66,28 @@ export function checkOutDeskBooking(
     return fail(`无法签退：当前状态 ${booking.status}（仅 CHECKED_IN 可签退）`);
   }
   return result(patch(booking, { status: "CHECKED_OUT", checkedOutAt: now }, now));
+}
+
+/**
+ * CHECKED_IN → CHECKED_OUT（到期自动签退，由定时巡检调用）。
+ *
+ * 只在「预订结束 + 宽限期」之后触发；checkedOutAt 记为预订结束时间，
+ * 而不是巡检任务实际运行时间 —— 任务延迟 5 分钟不会污染使用时长。
+ */
+export function autoCheckOut(
+  booking: DeskBooking,
+  now: Date,
+  graceMs = AUTO_CHECK_OUT_GRACE_MS
+): TransitionResult<DeskBooking> {
+  if (booking.status !== "CHECKED_IN") {
+    return fail(`无法自动签退：当前状态 ${booking.status}（仅 CHECKED_IN 可签退）`);
+  }
+  if (now.getTime() <= booking.endTime.getTime() + graceMs) {
+    return fail(`尚未超过自动签退时间（结束 + ${Math.round(graceMs / 60_000)} 分钟）`);
+  }
+  return result(
+    patch(booking, { status: "CHECKED_OUT", checkedOutAt: booking.endTime }, now)
+  );
 }
 
 /** CONFIRMED → CANCELLED（仅预订开始 30 分钟前可免费取消） */

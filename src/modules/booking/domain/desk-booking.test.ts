@@ -4,10 +4,11 @@ import {
   confirmBooking,
   checkInDeskBooking,
   checkOutDeskBooking,
+  autoCheckOut,
   cancelDeskBooking,
   markDeskNoShow,
 } from "./desk-booking";
-import { CANCEL_WINDOW_MS, NO_SHOW_GRACE_MS } from "./policies";
+import { AUTO_CHECK_OUT_GRACE_MS, CANCEL_WINDOW_MS, NO_SHOW_GRACE_MS } from "./policies";
 
 const MIN = 60_000;
 
@@ -173,5 +174,42 @@ describe("desk-booking NoShow 边界", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.status).toBe("NO_SHOW");
+  });
+});
+
+describe("desk-booking 到期自动签退", () => {
+  const end = new Date("2026-08-03T18:00:00Z");
+  const checkedIn = makeBooking({
+    status: "CHECKED_IN",
+    endTime: end,
+    checkedInAt: new Date("2026-08-03T09:01:00Z"),
+  });
+
+  it("未到预订结束不能自动签退", () => {
+    const r = autoCheckOut(checkedIn, new Date(end.getTime() - 1000));
+    expect(r.ok).toBe(false);
+  });
+
+  it("结束 + 宽限期内仍可手动签退（不自动）", () => {
+    const r = autoCheckOut(checkedIn, new Date(end.getTime() + AUTO_CHECK_OUT_GRACE_MS));
+    expect(r.ok).toBe(false);
+  });
+
+  it("超过结束 + 宽限期 → CHECKED_OUT，签退时间记为 endTime", () => {
+    const now = new Date(end.getTime() + AUTO_CHECK_OUT_GRACE_MS + 1000);
+    const r = autoCheckOut(checkedIn, now);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.status).toBe("CHECKED_OUT");
+    expect(r.value.checkedOutAt?.toISOString()).toBe(end.toISOString());
+    expect(r.value.updatedAt.toISOString()).toBe(now.toISOString());
+  });
+
+  it("非 CHECKED_IN 状态不能自动签退", () => {
+    const r = autoCheckOut(
+      makeBooking({ status: "CONFIRMED", endTime: end }),
+      new Date(end.getTime() + 60 * 60_000)
+    );
+    expect(r.ok).toBe(false);
   });
 });
