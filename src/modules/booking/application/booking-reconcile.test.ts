@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { eq } from "drizzle-orm";
+import { endOfDay } from "@/shared/clock";
 
 // 独立临时 DB；先设 env 再动态 import（lib/db 模块级单例读 env）
 const TEST_DB = path.resolve(`./data/test-reconcile-${process.pid}-${Date.now()}.db`);
@@ -25,6 +26,32 @@ CREATE TABLE IF NOT EXISTS desk_booking (
   checkedInAt integer,
   checkedOutAt integer,
   cancelledAt integer,
+  createdAt integer,
+  updatedAt integer
+);
+
+CREATE TABLE IF NOT EXISTS room_booking (
+  id text PRIMARY KEY NOT NULL,
+  memberId text NOT NULL,
+  roomId text NOT NULL,
+  startTime integer NOT NULL,
+  endTime integer NOT NULL,
+  expectedAttendees integer DEFAULT 0 NOT NULL,
+  status text DEFAULT 'PENDING' NOT NULL,
+  startedAt integer,
+  completedAt integer,
+  cancelledAt integer,
+  createdAt integer,
+  updatedAt integer
+);
+
+CREATE TABLE IF NOT EXISTS flex_session (
+  id text PRIMARY KEY NOT NULL,
+  memberId text NOT NULL,
+  zoneId text NOT NULL,
+  checkInAt integer NOT NULL,
+  checkOutAt integer,
+  status text DEFAULT 'ACTIVE' NOT NULL,
   createdAt integer,
   updatedAt integer
 );
@@ -51,6 +78,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await client.execute("DELETE FROM desk_booking");
+  await client.execute("DELETE FROM room_booking");
+  await client.execute("DELETE FROM flex_session");
   await client.execute("DELETE FROM outbox_event");
 });
 
@@ -67,14 +96,12 @@ const booking = await import("./booking-app");
 
 const MIN = 60_000;
 
-type SeedInput = {
+async function seedDeskBooking(input: {
   status: "CONFIRMED" | "CHECKED_IN";
   startTime: Date;
   endTime: Date;
   checkedInAt?: Date | null;
-};
-
-async function seedDeskBooking(input: SeedInput): Promise<string> {
+}): Promise<string> {
   const id = randomUUID();
   await testDb
     .insert(schema.deskBookings)
@@ -91,17 +118,56 @@ async function seedDeskBooking(input: SeedInput): Promise<string> {
   return id;
 }
 
-async function readBooking(id: string) {
-  return testDb
-    .select()
-    .from(schema.deskBookings)
-    .where(eq(schema.deskBookings.id, id))
-    .get();
+async function seedRoomBooking(input: {
+  status: "CONFIRMED" | "IN_PROGRESS";
+  startTime: Date;
+  endTime: Date;
+  startedAt?: Date | null;
+}): Promise<string> {
+  const id = randomUUID();
+  await testDb
+    .insert(schema.roomBookings)
+    .values({
+      id,
+      memberId: randomUUID(),
+      roomId: randomUUID(),
+      startTime: input.startTime,
+      endTime: input.endTime,
+      status: input.status,
+      startedAt: input.startedAt ?? null,
+    })
+    .run();
+  return id;
+}
+
+async function seedFlexSession(input: {
+  status?: "ACTIVE" | "COMPLETED";
+  checkInAt: Date;
+}): Promise<string> {
+  const id = randomUUID();
+  await testDb
+    .insert(schema.flexSessions)
+    .values({
+      id,
+      memberId: randomUUID(),
+      zoneId: randomUUID(),
+      checkInAt: input.checkInAt,
+      status: input.status ?? "ACTIVE",
+    })
+    .run();
+  return id;
 }
 
 async function readOutbox() {
   return testDb.select().from(schema.outboxEvents).all();
 }
+
+const EMPTY_RESULT = {
+  deskCheckedOut: 0,
+  deskNoShow: 0,
+  flexCompleted: 0,
+  roomsCompleted: 0,
+};
 
 describe("reconcileOverdueBookings — 到期自动签退", () => {
   it("超过结束 + 宽限期 → CHECKED_OUT，签退时间记为 endTime 并发出事件", async () => {
@@ -115,8 +181,12 @@ describe("reconcileOverdueBookings — 到期自动签退", () => {
 
     const result = await booking.reconcileOverdueBookings();
 
-    expect(result).toEqual({ checkedOut: 1, noShow: 0 });
-    const row = await readBooking(id);
+    expect(result).toEqual({ ...EMPTY_RESULT, deskCheckedOut: 1 });
+    const row = await testDb
+      .select()
+      .from(schema.deskBookings)
+      .where(eq(schema.deskBookings.id, id))
+      .get();
     expect(row?.status).toBe("CHECKED_OUT");
     expect(row?.checkedOutAt?.toISOString()).toBe(end.toISOString());
 
@@ -139,8 +209,13 @@ describe("reconcileOverdueBookings — 到期自动签退", () => {
 
     const result = await booking.reconcileOverdueBookings();
 
-    expect(result).toEqual({ checkedOut: 0, noShow: 0 });
-    expect((await readBooking(id))?.status).toBe("CHECKED_IN");
+    expect(result).toEqual(EMPTY_RESULT);
+    const row = await testDb
+      .select()
+      .from(schema.deskBookings)
+      .where(eq(schema.deskBookings.id, id))
+      .get();
+    expect(row?.status).toBe("CHECKED_IN");
     expect(await readOutbox()).toHaveLength(0);
   });
 
@@ -153,8 +228,11 @@ describe("reconcileOverdueBookings — 到期自动签退", () => {
       checkedInAt: new Date(end.getTime() - 110 * MIN),
     });
 
-    expect(await booking.reconcileOverdueBookings()).toEqual({ checkedOut: 1, noShow: 0 });
-    expect(await booking.reconcileOverdueBookings()).toEqual({ checkedOut: 0, noShow: 0 });
+    expect(await booking.reconcileOverdueBookings()).toEqual({
+      ...EMPTY_RESULT,
+      deskCheckedOut: 1,
+    });
+    expect(await booking.reconcileOverdueBookings()).toEqual(EMPTY_RESULT);
     expect(await readOutbox()).toHaveLength(1);
   });
 });
@@ -170,8 +248,13 @@ describe("reconcileOverdueBookings — 自动爽约", () => {
 
     const result = await booking.reconcileOverdueBookings();
 
-    expect(result).toEqual({ checkedOut: 0, noShow: 1 });
-    expect((await readBooking(id))?.status).toBe("NO_SHOW");
+    expect(result).toEqual({ ...EMPTY_RESULT, deskNoShow: 1 });
+    const row = await testDb
+      .select()
+      .from(schema.deskBookings)
+      .where(eq(schema.deskBookings.id, id))
+      .get();
+    expect(row?.status).toBe("NO_SHOW");
   });
 
   it("仍在 15 分钟签到窗口内 → 保持 CONFIRMED", async () => {
@@ -184,7 +267,102 @@ describe("reconcileOverdueBookings — 自动爽约", () => {
 
     const result = await booking.reconcileOverdueBookings();
 
-    expect(result).toEqual({ checkedOut: 0, noShow: 0 });
-    expect((await readBooking(id))?.status).toBe("CONFIRMED");
+    expect(result).toEqual(EMPTY_RESULT);
+    const row = await testDb
+      .select()
+      .from(schema.deskBookings)
+      .where(eq(schema.deskBookings.id, id))
+      .get();
+    expect(row?.status).toBe("CONFIRMED");
+  });
+});
+
+describe("reconcileOverdueBookings — 灵活区当日结束自动离场", () => {
+  it("跨天仍 ACTIVE → COMPLETED，离场时间记为当日 23:59:59", async () => {
+    const checkInAt = new Date(Date.now() - 26 * 60 * MIN);
+    const expectedCheckOut = endOfDay(checkInAt);
+    const id = await seedFlexSession({ checkInAt });
+
+    const result = await booking.reconcileOverdueBookings();
+
+    expect(result).toEqual({ ...EMPTY_RESULT, flexCompleted: 1 });
+    const row = await testDb
+      .select()
+      .from(schema.flexSessions)
+      .where(eq(schema.flexSessions.id, id))
+      .get();
+    expect(row?.status).toBe("COMPLETED");
+    expect(row?.checkOutAt?.toISOString()).toBe(expectedCheckOut.toISOString());
+
+    const events = await readOutbox();
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe("booking.flex-session-ended");
+    const payload = JSON.parse(events[0].payload) as Record<string, unknown>;
+    expect(payload.auto).toBe(true);
+    expect(payload.checkOutTime).toBe(expectedCheckOut.toISOString());
+  });
+
+  it("当天入场仍 ACTIVE → 保持不变", async () => {
+    const id = await seedFlexSession({ checkInAt: new Date(Date.now() - 2 * 60 * MIN) });
+
+    const result = await booking.reconcileOverdueBookings();
+
+    expect(result).toEqual(EMPTY_RESULT);
+    const row = await testDb
+      .select()
+      .from(schema.flexSessions)
+      .where(eq(schema.flexSessions.id, id))
+      .get();
+    expect(row?.status).toBe("ACTIVE");
+  });
+});
+
+describe("reconcileOverdueBookings — 会议室到点自动完成", () => {
+  it("超过结束 + 宽限期 → COMPLETED，完成时间记为 endTime（无超时费）", async () => {
+    const end = new Date(Date.now() - 60 * MIN);
+    const id = await seedRoomBooking({
+      status: "IN_PROGRESS",
+      startTime: new Date(end.getTime() - 60 * MIN),
+      endTime: end,
+      startedAt: new Date(end.getTime() - 58 * MIN),
+    });
+
+    const result = await booking.reconcileOverdueBookings();
+
+    expect(result).toEqual({ ...EMPTY_RESULT, roomsCompleted: 1 });
+    const row = await testDb
+      .select()
+      .from(schema.roomBookings)
+      .where(eq(schema.roomBookings.id, id))
+      .get();
+    expect(row?.status).toBe("COMPLETED");
+    expect(row?.completedAt?.toISOString()).toBe(end.toISOString());
+
+    const events = await readOutbox();
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe("booking.room-booking-completed");
+    const payload = JSON.parse(events[0].payload) as Record<string, unknown>;
+    expect(payload.auto).toBe(true);
+    expect(payload.actualEndTime).toBe(end.toISOString());
+  });
+
+  it("仍在宽限期内 → 保持 IN_PROGRESS", async () => {
+    const end = new Date(Date.now() - 5 * MIN);
+    const id = await seedRoomBooking({
+      status: "IN_PROGRESS",
+      startTime: new Date(end.getTime() - 60 * MIN),
+      endTime: end,
+      startedAt: new Date(end.getTime() - 58 * MIN),
+    });
+
+    const result = await booking.reconcileOverdueBookings();
+
+    expect(result).toEqual(EMPTY_RESULT);
+    const row = await testDb
+      .select()
+      .from(schema.roomBookings)
+      .where(eq(schema.roomBookings.id, id))
+      .get();
+    expect(row?.status).toBe("IN_PROGRESS");
   });
 });

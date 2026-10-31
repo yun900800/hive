@@ -37,6 +37,28 @@ export function endFlexSession(
   return result(patch(session, { status: "COMPLETED", checkOutAt: now }, now));
 }
 
+/**
+ * ACTIVE → COMPLETED（当日结束自动离场，由定时巡检调用）。
+ *
+ * 灵活区按天授权（通行证有效至当天 23:59:59），忘记签退不应把会话永远卡在
+ * ACTIVE；自动签退时间记为 validUntil，而不是巡检实际运行时间。
+ */
+export function autoEndFlexSession(
+  session: FlexSession,
+  validUntil: Date,
+  now: Date
+): TransitionResult<FlexSession> {
+  if (session.status !== "ACTIVE") {
+    return fail(`无法自动离场：当前状态 ${session.status}（仅 ACTIVE 可离场）`);
+  }
+  if (now.getTime() <= validUntil.getTime()) {
+    return fail("尚未到当日结束，不能自动离场");
+  }
+  return result(
+    patch(session, { status: "COMPLETED", checkOutAt: validUntil }, now)
+  );
+}
+
 /** ACTIVE → NO_SHOW（边缘场景：预留入场未到） */
 export function markFlexNoShow(
   session: FlexSession,

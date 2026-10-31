@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, lte } from "drizzle-orm";
+import { eq, and, desc, sql, lte, lt } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   deskBookings,
@@ -18,7 +18,8 @@ import * as deskSM from "../domain/desk-booking";
 import * as roomSM from "../domain/room-booking";
 import * as flexSM from "../domain/flex-session";
 import { hasOverlapWithExisting } from "../domain/availability";
-import { AUTO_CHECK_OUT_GRACE_MS, NO_SHOW_GRACE_MS } from "../domain/policies";
+import { AUTO_CHECK_OUT_GRACE_MS, AUTO_COMPLETE_GRACE_MS, NO_SHOW_GRACE_MS } from "../domain/policies";
+import { endOfDay, startOfDay } from "@/shared/clock";
 import type { DeskBooking, RoomBooking, FlexSession } from "../domain/types";
 
 /**
@@ -334,26 +335,35 @@ export async function markDeskNoShow(
 // ---------- 逾期巡检（到期自动签退 / 自动爽约） ----------
 
 export type ReconcileResult = {
-  /** 本轮自动签退的预订数 */
-  checkedOut: number;
-  /** 本轮判定为爽约的预订数 */
-  noShow: number;
+  /** 本轮自动签退的工位预订数 */
+  deskCheckedOut: number;
+  /** 本轮判定为爽约的工位预订数 */
+  deskNoShow: number;
+  /** 本轮自动离场的灵活区会话数 */
+  flexCompleted: number;
+  /** 本轮自动完成的会议室预订数 */
+  roomsCompleted: number;
 };
 
 /**
- * 巡检逾期预订（幂等，可重复执行）：
- * - CHECKED_IN 且已过「结束 + 宽限期」→ CHECKED_OUT，checkedOutAt 记为 endTime；
- * - CONFIRMED 且已过「开始 + 15 分钟」→ NO_SHOW。
+ * 巡检逾期记录（幂等，可重复执行）：
+ * - 工位：CHECKED_IN 且已过「结束 + 宽限期」→ CHECKED_OUT；
+ *         CONFIRMED 且已过「开始 + 15 分钟」→ NO_SHOW；
+ * - 灵活区：ACTIVE 且跨天 → COMPLETED（签退记为当日 23:59:59）；
+ * - 会议室：IN_PROGRESS 且已过「结束 + 宽限期」→ COMPLETED（不产生超时费）。
  *
- * 由 `/api/booking/reconcile` 定时驱动；条件 UPDATE 保证与会员手动签退并发时
+ * 由 `/api/maintenance/reconcile` 定时驱动；条件 UPDATE 保证与人工操作并发时
  * 只有一方生效，不会重复发事件。
  */
 export async function reconcileOverdueBookings(
   now = new Date()
 ): Promise<ReconcileResult> {
-  const checkedOut = await autoCheckOutOverdue(now);
-  const noShow = await markOverdueNoShows(now);
-  return { checkedOut, noShow };
+  return {
+    deskCheckedOut: await autoCheckOutOverdue(now),
+    deskNoShow: await markOverdueNoShows(now),
+    flexCompleted: await autoEndFlexSessions(now),
+    roomsCompleted: await autoCompleteRoomBookings(now),
+  };
 }
 
 async function autoCheckOutOverdue(now: Date): Promise<number> {
@@ -423,6 +433,106 @@ async function markOverdueNoShows(now: Date): Promise<number> {
       .returning({ id: deskBookings.id })
       .all();
     if (updated.length > 0) count += 1;
+  }
+  return count;
+}
+
+async function autoEndFlexSessions(now: Date): Promise<number> {
+  // 跨天（业务时区）的 ACTIVE 会话 → 视为当天忘记签退
+  const dayStart = startOfDay(now);
+  const rows = await db
+    .select()
+    .from(flexSessions)
+    .where(and(eq(flexSessions.status, "ACTIVE"), lt(flexSessions.checkInAt, dayStart)))
+    .all();
+
+  let count = 0;
+  for (const row of rows) {
+    const validUntil = endOfDay(row.checkInAt);
+    const verdict = flexSM.autoEndFlexSession(row as FlexSession, validUntil, now);
+    if (!verdict.ok) continue;
+    const next = verdict.value;
+    const event = createEvent({
+      eventType: "booking.flex-session-ended",
+      aggregateId: next.id,
+      aggregateType: "FlexSession",
+      payload: {
+        sessionId: next.id,
+        memberId: next.memberId,
+        checkOutTime: validUntil.toISOString(),
+        actualDurationMs: validUntil.getTime() - row.checkInAt.getTime(),
+        auto: true,
+      },
+    });
+
+    const applied = await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(flexSessions)
+        .set({
+          status: next.status,
+          checkOutAt: next.checkOutAt,
+          updatedAt: next.updatedAt,
+        })
+        .where(and(eq(flexSessions.id, next.id), eq(flexSessions.status, "ACTIVE")))
+        .returning({ id: flexSessions.id })
+        .all();
+      if (updated.length === 0) return false; // 已被会员手动离场
+      await appendOutboxEvents(tx, [event]);
+      return true;
+    });
+    if (applied) count += 1;
+  }
+  return count;
+}
+
+async function autoCompleteRoomBookings(now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - AUTO_COMPLETE_GRACE_MS);
+  const rows = await db
+    .select()
+    .from(roomBookings)
+    .where(
+      and(eq(roomBookings.status, "IN_PROGRESS"), lte(roomBookings.endTime, cutoff))
+    )
+    .all();
+
+  let count = 0;
+  for (const row of rows) {
+    const verdict = roomSM.autoCompleteRoomBooking(row as RoomBooking, now);
+    if (!verdict.ok) continue;
+    const next = verdict.value;
+    const completedAt = next.completedAt ?? next.endTime;
+    const event = createEvent({
+      eventType: "booking.room-booking-completed",
+      aggregateId: next.id,
+      aggregateType: "MeetingRoomBooking",
+      payload: {
+        roomBookingId: next.id,
+        memberId: next.memberId,
+        roomId: next.roomId,
+        bookedStartTime: next.startTime.toISOString(),
+        bookedEndTime: next.endTime.toISOString(),
+        actualStartTime: (next.startedAt ?? next.startTime).toISOString(),
+        actualEndTime: completedAt.toISOString(),
+        auto: true,
+      },
+    });
+
+    const applied = await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(roomBookings)
+        .set({
+          status: next.status,
+          completedAt: next.completedAt,
+          updatedAt: next.updatedAt,
+        })
+        .where(and(eq(roomBookings.id, next.id), eq(roomBookings.status, "IN_PROGRESS")))
+        .returning({ id: roomBookings.id })
+        .all();
+      if (updated.length === 0) return false; // 已被会员手动完成
+      await appendOutboxEvents(tx, [event]);
+      return true;
+    });
+    if (applied) count += 1;
   }
   return count;
 }

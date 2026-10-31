@@ -9,10 +9,13 @@ export const CANCEL_WINDOW_MINUTES = 30;
 export const NO_SHOW_GRACE_MINUTES = 15;
 /** 到期未签退的宽限期：结束后的 15 分钟内仍可正常签退 */
 export const AUTO_CHECK_OUT_GRACE_MINUTES = 15;
+/** 会议室到点未完成使用的宽限期 */
+export const AUTO_COMPLETE_GRACE_MINUTES = 15;
 
 export const CANCEL_WINDOW_MS = CANCEL_WINDOW_MINUTES * 60_000;
 export const NO_SHOW_GRACE_MS = NO_SHOW_GRACE_MINUTES * 60_000;
 export const AUTO_CHECK_OUT_GRACE_MS = AUTO_CHECK_OUT_GRACE_MINUTES * 60_000;
+export const AUTO_COMPLETE_GRACE_MS = AUTO_COMPLETE_GRACE_MINUTES * 60_000;
 
 /**
  * 取消窗口规则：预订开始前 30 分钟内不可免费取消。

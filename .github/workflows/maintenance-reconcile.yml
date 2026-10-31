@@ -1,0 +1,16 @@
+name: Maintenance Reconcile
+
+on:
+  schedule:
+    # 每 5 分钟巡检：到期未签退/未离场/未完成、过期通行证
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconcile overdue records
+        run: |
+          curl -fsS -X GET "${{ secrets.VERCEL_URL }}/api/maintenance/reconcile" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

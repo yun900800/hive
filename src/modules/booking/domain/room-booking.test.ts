@@ -4,8 +4,10 @@ import {
   confirmRoomBooking,
   startRoomBooking,
   completeRoomBooking,
+  autoCompleteRoomBooking,
   cancelRoomBooking,
 } from "./room-booking";
+import { AUTO_COMPLETE_GRACE_MS } from "./policies";
 
 function makeBooking(overrides: Partial<RoomBooking> = {}): RoomBooking {
   const startTime = new Date("2026-08-03T14:00:00.000Z");
@@ -87,6 +89,43 @@ describe("room-booking 状态机：非法流转拒绝", () => {
     const r = cancelRoomBooking(
       makeBooking({ status: "IN_PROGRESS" }),
       new Date("2026-08-03T14:30:00Z")
+    );
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("room-booking 到点自动完成", () => {
+  const end = new Date("2026-08-03T15:00:00Z");
+  const inProgress = makeBooking({
+    status: "IN_PROGRESS",
+    endTime: end,
+    startedAt: new Date("2026-08-03T14:02:00Z"),
+  });
+
+  it("未到预订结束不能自动完成", () => {
+    const r = autoCompleteRoomBooking(inProgress, new Date(end.getTime() - 1000));
+    expect(r.ok).toBe(false);
+  });
+
+  it("结束 + 宽限期内不自动完成", () => {
+    const r = autoCompleteRoomBooking(inProgress, new Date(end.getTime() + AUTO_COMPLETE_GRACE_MS));
+    expect(r.ok).toBe(false);
+  });
+
+  it("超过结束 + 宽限期 → COMPLETED，完成时间记为 endTime（无超时费）", () => {
+    const now = new Date(end.getTime() + AUTO_COMPLETE_GRACE_MS + 1000);
+    const r = autoCompleteRoomBooking(inProgress, now);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.status).toBe("COMPLETED");
+    expect(r.value.completedAt?.toISOString()).toBe(end.toISOString());
+    expect(r.value.updatedAt.toISOString()).toBe(now.toISOString());
+  });
+
+  it("非 IN_PROGRESS 不能自动完成", () => {
+    const r = autoCompleteRoomBooking(
+      makeBooking({ status: "CONFIRMED", endTime: end }),
+      new Date(end.getTime() + 60 * 60_000)
     );
     expect(r.ok).toBe(false);
   });

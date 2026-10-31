@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { reconcileOverdueBookings } from "@/modules/booking/application/booking-app";
+import { expireOldPasses } from "@/modules/access/application/access-app";
 
 /**
- * 预订逾期巡检：
+ * 逾期巡检（统一入口）：
  * - GET  —— GitHub Actions / Cron 调用（定期兜底），认证：Authorization: Bearer CRON_SECRET
  * - POST —— 管理员手动触发，认证：admin session
  *
- * 到期未签退的工位预订 → CHECKED_OUT（checkedOutAt 记为预订结束时间）；
- * 确认后 15 分钟仍未签到 → NO_SHOW。幂等，可重复执行。
+ * 一次性收尾所有「忘记操作」的记录，全部幂等：
+ * - 工位：到期未签退 → CHECKED_OUT；确认后 15 分钟未到 → NO_SHOW
+ * - 灵活区：跨天仍 ACTIVE → COMPLETED（签退记为当日 23:59:59）
+ * - 会议室：到点未完成 → COMPLETED（不产生超时费）
+ * - 通行证：超过有效期仍 ACTIVE → EXPIRED
  */
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization");
@@ -17,8 +21,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "无权访问" }, { status: 403 });
   }
 
-  const result = await reconcileOverdueBookings();
-  return NextResponse.json(result);
+  const bookings = await reconcileOverdueBookings();
+  const passesExpired = await expireOldPasses();
+  return NextResponse.json({ ...bookings, passesExpired });
 }
 
 export async function POST() {
@@ -27,6 +32,7 @@ export async function POST() {
     return NextResponse.json({ error: "无权访问" }, { status: 403 });
   }
 
-  const result = await reconcileOverdueBookings();
-  return NextResponse.json(result);
+  const bookings = await reconcileOverdueBookings();
+  const passesExpired = await expireOldPasses();
+  return NextResponse.json({ ...bookings, passesExpired });
 }
