@@ -9,6 +9,7 @@ import {
   deleteDeskAction,
   deleteMeetingRoomAction,
   deleteFlexZoneAction,
+  deleteGateAction,
   type ActionState,
 } from "@/modules/facility/interface/actions/facility";
 
@@ -18,6 +19,7 @@ const deleteHandlers = {
   desk: deleteDeskAction,
   room: deleteMeetingRoomAction,
   zone: deleteFlexZoneAction,
+  gate: deleteGateAction,
 };
 
 export type DeleteKind = keyof typeof deleteHandlers;

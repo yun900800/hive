@@ -140,3 +140,33 @@ describe("灵活区管理", () => {
     expect(await facility.listFlexZones()).toHaveLength(0);
   });
 });
+
+describe("闸机管理", () => {
+  const GATE_INPUT = {
+    name: "东区入口2号闸机",
+    floor: "A",
+    zone: "entrance",
+    type: "ENTRY_TURNSTILE" as const,
+  };
+
+  it("新增闸机：状态为 OPERATIONAL，字段落库", async () => {
+    const created = await facility.createGate(GATE_INPUT);
+
+    expect(created?.status).toBe("OPERATIONAL");
+    expect(created?.name).toBe(GATE_INPUT.name);
+    expect(created?.floor).toBe("A");
+    expect(created?.zone).toBe("entrance");
+    expect(created?.type).toBe("ENTRY_TURNSTILE");
+
+    const all = await facility.listGates();
+    expect(all).toHaveLength(1);
+  });
+
+  it("删除闸机后从列表移除", async () => {
+    const gate = await facility.createGate(GATE_INPUT);
+
+    await facility.deleteGate(gate!.id);
+
+    expect(await facility.listGates()).toHaveLength(0);
+  });
+});

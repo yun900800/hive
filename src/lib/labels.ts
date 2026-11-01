@@ -29,6 +29,7 @@ export type LabelKind =
   | "roomStatus"
   | "zoneStatus"
   | "gateStatus"
+  | "gateType"
   | "role";
 
 type Meta = { label: string; tone: StatusTone };
@@ -136,6 +137,12 @@ const MAPS: Record<LabelKind, Record<string, Meta>> = {
     UNDER_MAINTENANCE: { label: "维护中", tone: "warning" },
     OFFLINE: { label: "离线", tone: "danger" },
     OUT_OF_SERVICE: { label: "停用", tone: "neutral" },
+  },
+  gateType: {
+    ENTRY_TURNSTILE: { label: "入口闸机", tone: "brand" },
+    EXIT_TURNSTILE: { label: "出口闸机", tone: "info" },
+    EMERGENCY_EXIT: { label: "紧急出口", tone: "warning" },
+    ELEVATOR_CONTROL: { label: "梯控", tone: "neutral" },
   },
   role: {
     ADMIN: { label: "管理员", tone: "brand" },

@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { desks, meetingRooms, flexZones, gates, flexSessions } from "@/lib/db/schema";
 import { buildDeskCode, parseDeskCode } from "../domain/desk-code";
-import type { DeskStatus, RoomStatus, RoomType, DeskType } from "../domain/types";
+import type { DeskStatus, RoomStatus, RoomType, DeskType, GateType } from "../domain/types";
 
 /**
  * FacilityApplicationService — 空间资源（工位/会议室/灵活区/闸机）管理用例。
@@ -177,10 +177,35 @@ export async function deleteFlexZone(id: string) {
   return db.delete(flexZones).where(eq(flexZones.id, id)).run();
 }
 
-// ---------- 闸机（本期只读展示） ----------
+// ---------- 闸机 ----------
+
+export type CreateGateInput = {
+  name: string;
+  floor: string;
+  zone: string;
+  type: GateType;
+};
+
+export async function createGate(input: CreateGateInput) {
+  return db
+    .insert(gates)
+    .values({
+      name: input.name,
+      floor: input.floor,
+      zone: input.zone,
+      type: input.type,
+      status: "OPERATIONAL",
+    })
+    .returning()
+    .get();
+}
 
 export async function listGates() {
   return db.select().from(gates).all();
+}
+
+export async function deleteGate(id: string) {
+  return db.delete(gates).where(eq(gates.id, id)).run();
 }
 
 function parseEquipments(raw: string | null): string[] {

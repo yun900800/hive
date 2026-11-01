@@ -12,6 +12,7 @@ import { formatYuan } from "@/lib/format";
 import { DeskForm } from "./desk-form";
 import { RoomForm } from "./room-form";
 import { FlexZoneForm } from "./flex-zone-form";
+import { GateForm } from "./gate-form";
 import { DeleteButton } from "./delete-button";
 import {
   Tabs,
@@ -55,7 +56,7 @@ export default async function FacilityPage() {
     <div className="space-y-8">
       <PageHeader
         title="空间资源管理"
-        description="维护工位、会议室、灵活办公区与闸机设备。新增资源会立即出现在会员端预订页。"
+        description="维护工位、会议室、灵活办公区与闸机设备。新增工位、会议室与灵活区后，会员端即时可见。"
       />
 
       <Tabs defaultValue="desks" className="gap-6">
@@ -271,7 +272,9 @@ export default async function FacilityPage() {
         </TabsContent>
 
         {/* 闸机 */}
-        <TabsContent value="gates">
+        <TabsContent value="gates" className="space-y-5">
+          <GateForm />
+
           <SectionCard
             title="闸机设备"
             description={`共 ${gates.length} 台设备，用于通行记录与扫码核销。`}
@@ -281,7 +284,7 @@ export default async function FacilityPage() {
               <EmptyState
                 icon={ScanLine}
                 title="还没有闸机"
-                description="闸机设备需要在种子数据或后续版本中配置。"
+                description="使用上方表单添加第一台闸机，即可开始记录通行。"
                 className="border-0 bg-transparent"
               />
             ) : (
@@ -291,7 +294,9 @@ export default async function FacilityPage() {
                     <TableRow>
                       <TableHead>名称</TableHead>
                       <TableHead>位置</TableHead>
+                      <TableHead>类型</TableHead>
                       <TableHead>状态</TableHead>
+                      <TableHead className="w-20 text-right">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -304,7 +309,17 @@ export default async function FacilityPage() {
                           {gate.floor} 层 · {gate.zone} 区
                         </TableCell>
                         <TableCell>
+                          <StatusBadge kind="gateType" value={gate.type} />
+                        </TableCell>
+                        <TableCell>
                           <StatusBadge kind="gateStatus" value={gate.status} />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DeleteButton
+                            kind="gate"
+                            id={gate.id}
+                            label={gate.name}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
