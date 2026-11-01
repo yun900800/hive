@@ -532,3 +532,20 @@ UI 重构明确「只改展示层，不动 `domain/`、`application/`、server a
 | 通行证编码截断 8 位 | `src/modules/access/domain/gate-pass.ts:46-48` |
 | 默认管理员口令 | `deploy-summary.md:67` |
 | CI 只跑 cron | `.github/workflows/*.yml`、`vercel.json` |
+
+## 功能补充记录（非架构优化项）
+
+| 日期 | 内容 | Commit |
+|---|---|---|
+| 2026-11-01 | 管理端空间资源自助维护：灵活区、闸机支持新增与删除 | `dd32573`、`e58dc3b` |
+
+**Facility 自助维护**
+
+- **灵活区**：新增写入 `name / floor / capacity / openingTime / closingTime`，初始状态 `OPEN`，会员端灵活区签到下拉即时可见。
+- **闸机**：新增写入 `name / floor / zone / type`，初始状态 `OPERATIONAL`；类型沿用 `ENTRY_TURNSTILE / EXIT_TURNSTILE / EMERGENCY_EXIT / ELEVATOR_CONTROL`。
+- **删除规则**：
+  - 灵活区：删除前检查 `flex_session` 是否存在 `status = ACTIVE` 的会话，存在则拒绝并提示「请先办理离场」；跨聚合校验放在应用服务中，避免 Facility 依赖 Booking 的写入流程。
+  - 闸机：直接硬删。`access_log` 只保存 `gateName` 文本、不引用 `gate.id`，因此历史通行记录与筛选不受影响。
+  - 两者均为硬删，与工位/会议室一致；被删除资源在历史会话/账单中显示为「资源已删除 / 未知区域」，页面已有兜底文案。
+- **影响面**：仅管理端 `/admin/facility` 的灵活区、闸机两个 Tab 由只读变为可维护；会员端、门禁核销与计费流程无改动。
+- **验证**：`facility-app.test.ts` 覆盖新增/删除与占用拦截；全量 27 个测试文件、206 个用例通过，`tsc` 与 `next build` 通过。
