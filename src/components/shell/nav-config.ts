@@ -5,6 +5,7 @@ import {
   CalendarDays,
   CreditCard,
   DoorOpen,
+  FlaskConical,
   LayoutDashboard,
   ScanLine,
   Sparkles,
@@ -81,6 +82,7 @@ const ADMIN_NAV: NavGroup[] = [
     label: "运营",
     items: [
       { href: "/admin/billing", label: "账单管理", icon: CreditCard },
+      { href: "/admin/invoice-lab", label: "发票联调台", icon: FlaskConical },
       { href: "/admin/access", label: "通行管理", icon: ScanLine },
       { href: "/admin/reports", label: "经营报表", icon: BarChart3 },
     ],

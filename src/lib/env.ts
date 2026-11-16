@@ -16,6 +16,10 @@ const schema = z.object({
   DATABASE_AUTH_TOKEN: z.string().min(1).optional(),
   AUTH_SECRET: z.string().min(1).optional(),
   CRON_SECRET: z.string().min(1).optional(),
+  // 发票联调台（/admin/invoice-lab）用的 n8n webhook 接入点。
+  // 不在生产强校验：缺失只会让联调台显示「未配置」，不该拖垮整个应用。
+  INVOICE_WEBHOOK_URL: z.string().min(1).optional(),
+  INVOICE_WEBHOOK_TOKEN: z.string().min(1).optional(),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -44,6 +48,18 @@ if (isProduction && !isBuildPhase) {
         level: "warn",
         event: "env.cron-secret-missing",
         message: "CRON_SECRET 未配置，定时出账与事件冲刷将返回 403",
+        at: new Date().toISOString(),
+      })
+    );
+  }
+
+  // 联调台是内部测试工具，缺配置时由页面自我说明，不阻断启动。
+  if (!env.INVOICE_WEBHOOK_URL || !env.INVOICE_WEBHOOK_TOKEN) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        event: "env.invoice-webhook-missing",
+        message: "INVOICE_WEBHOOK_URL / INVOICE_WEBHOOK_TOKEN 未配置，/admin/invoice-lab 不可用",
         at: new Date().toISOString(),
       })
     );
