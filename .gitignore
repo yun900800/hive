@@ -24,6 +24,14 @@
 .DS_Store
 *.pem
 
+# google oauth client downloads (contain client_secret)
+**/client_secret*.json
+**/client_secret*.json.*
+
+# n8n 发票交付物 —— 这是要单独售卖的商品，仓库是 public，不随代码公开
+# （含工作流本体、买家文档、测试载荷，以及一份第三方模板的 Google 资源 id）
+docs/n8n/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
